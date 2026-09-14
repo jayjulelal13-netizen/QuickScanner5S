@@ -1,1 +1,43 @@
+name: Build QuickScanner5S
 
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main", "master" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract QuickScanner5S project
+        run: |
+          mkdir build_project
+          unzip -q QuickScanner5S_Project.zip -d build_project
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK
+        run: |
+          yes | sdkmanager --licenses || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Build APK
+        working-directory: build_project/QuickScanner5S_Project
+        run: gradle :app:assembleDebug --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: QuickScanner5S-debug
+          path: build_project/QuickScanner5S_Project/app/build/outputs/apk/debug/app-debug.apk
