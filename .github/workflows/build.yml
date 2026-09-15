@@ -26,7 +26,6 @@ jobs:
       - name: Verify Android SDK
         run: |
           set -eux
-          echo "ANDROID_HOME=$ANDROID_HOME"
           test -d "$ANDROID_HOME"
           test -d "$ANDROID_HOME/platforms/android-35"
           test -d "$ANDROID_HOME/build-tools/35.0.0"
@@ -39,16 +38,18 @@ jobs:
           rm -rf build_project
           mkdir -p build_project
 
-          ZIP_FILE=$(find . -type f -name 'QuickScanner5S_5Sec_Fixed.zip' -print -quit)
+          ZIP_FILE=$(find . -type f \
+            -name 'QuickScanner5S_5Sec_JVM17_FIXED.zip' \
+            -print -quit)
 
           if [ -z "$ZIP_FILE" ]; then
-            echo "Fixed ZIP not found."
-            echo "Available ZIP files:"
+            echo "ERROR: Required ZIP not found."
+            echo "ZIP files currently in repository:"
             find . -type f -name '*.zip' -print
             exit 1
           fi
 
-          echo "Using: $ZIP_FILE"
+          echo "Using ZIP: $ZIP_FILE"
           unzip -q "$ZIP_FILE" -d build_project
 
       - name: Find Android project
@@ -61,23 +62,26 @@ jobs:
             -printf '%h\n' | head -n 1)
 
           if [ -z "$PROJECT_DIR" ]; then
-            echo "Android project not found."
+            echo "ERROR: Android project not found."
             find build_project -maxdepth 6 -type f | sort
             exit 1
           fi
 
-          echo "PROJECT_DIR=$PROJECT_DIR"
+          echo "Android project: $PROJECT_DIR"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
       - name: Verify project
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
           set -eux
-          pwd
-          ls -la
+
           test -f settings.gradle.kts -o -f settings.gradle
           test -d app
           test -f app/build.gradle.kts -o -f app/build.gradle
+
+          echo "Android project verified."
+          pwd
+          ls -la
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
