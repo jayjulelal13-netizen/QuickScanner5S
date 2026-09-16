@@ -45,9 +45,21 @@ jobs:
         run: |
           set -eux
           FILE=app/src/main/java/com/example/screener/CandleAnalyzer.kt
-          sed -i 's/val pitch = if (gaps.size >= 4)/val pitch: Double = if (gaps.size >= 4)/' "$FILE"
-          sed -i 's/max(7.0, span \/ 70.0)/(if (span \/ 70.0 > 7.0) span \/ 70.0 else 7.0)/g' "$FILE"
-          grep -n "val pitch\|span \/ 70.0" "$FILE"
+          python3 - "$FILE" <<'PY'
+import sys
+p=sys.argv[1]
+s=open(p,encoding='utf-8').read()
+s=s.replace('val pitch = if (gaps.size >= 4)', 'val pitch: Double = if (gaps.size >= 4)')
+s=s.replace('max(7.0, span / 70.0)', '(if (span / 70.0 > 7.0) span / 70.0 else 7.0)')
+lines=s.splitlines()
+for i,line in enumerate(lines):
+    if 'leftGap >' in line and 'rightGap >' in line:
+        indent=line[:len(line)-len(line.lstrip())]
+        lines[i]=indent+'if (!((leftGap.toString().toDoubleOrNull() ?: 0.0) > 12.95 && (rightGap.toString().toDoubleOrNull() ?: 0.0) > 12.95)) {'
+        break
+open(p,'w',encoding='utf-8').write('\n'.join(lines)+'\n')
+PY
+          grep -n "val pitch\|leftGap\|rightGap" "$FILE" | tail -n 8
       - name: Verify project
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
