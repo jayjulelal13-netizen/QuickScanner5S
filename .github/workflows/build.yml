@@ -37,7 +37,7 @@ jobs:
           PROJECT_DIR=$(find build_project -type f \( -name "settings.gradle.kts" -o -name "settings.gradle" \) -printf '%h\n' | head -n 1)
           test -n "$PROJECT_DIR"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-      - name: Fix Kotlin compile issue
+      - name: Fix Kotlin compile issue and install identity
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
           set -eux
@@ -45,6 +45,9 @@ jobs:
           sed -i 's/val pitch = if (gaps.size >= 4)/val pitch: Double = if (gaps.size >= 4)/' "$FILE"
           sed -i 's/max(7.0, span \/ 70.0)/(if (span \/ 70.0 > 7.0) span \/ 70.0 else 7.0)/g' "$FILE"
           sed -i '/leftGap >/c\        if (!((leftGap.toString().toDoubleOrNull() ?: 0.0) > 12.95 \&\& (rightGap.toString().toDoubleOrNull() ?: 0.0) > 12.95)) {' "$FILE"
+          GRADLE_FILE=app/build.gradle.kts
+          sed -i 's/applicationId = "com.example.screener"/applicationId = "com.example.screener.final5s"/' "$GRADLE_FILE"
+          grep -n "applicationId" "$GRADLE_FILE"
           grep -n "val pitch\|leftGap\|rightGap" "$FILE" | tail -n 8
       - name: Verify project
         working-directory: ${{ env.PROJECT_DIR }}
@@ -69,6 +72,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: QuickScanner5S-FINAL
+          name: QuickScanner5S-FINAL-INSTALLABLE
           path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
