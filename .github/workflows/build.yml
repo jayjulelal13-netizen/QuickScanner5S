@@ -39,7 +39,7 @@ jobs:
           mkdir -p build_project
 
           ZIP_FILE=$(find . -type f \
-            -name 'QuickScanner5S_5Sec_JVM17_FIXED.zip' \
+            -name 'QuickScanner5S_5S_CANDLE_FIXED_V8.zip' \
             -print -quit)
 
           if [ -z "$ZIP_FILE" ]; then
