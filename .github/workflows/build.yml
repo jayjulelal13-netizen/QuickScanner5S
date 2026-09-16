@@ -34,6 +34,12 @@ jobs:
           ZIP_FILE="QuickScanner5S_CANDLE_ENGINE_FINAL.zip"
           test -f "$ZIP_FILE"
           unzip -q "$ZIP_FILE" -d build_project
+      - name: Find Android project
+        run: |
+          set -eux
+          PROJECT_DIR=$(find build_project -type f \( -name "settings.gradle.kts" -o -name "settings.gradle" \) -printf '%h\n' | head -n 1)
+          test -n "$PROJECT_DIR"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
       - name: Fix Kotlin compile issue
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
@@ -42,12 +48,6 @@ jobs:
           sed -i 's/val pitch = if (gaps.size >= 4)/val pitch: Double = if (gaps.size >= 4)/' "$FILE"
           sed -i 's/max(7.0, span \/ 70.0)/(if (span \/ 70.0 > 7.0) span \/ 70.0 else 7.0)/g' "$FILE"
           grep -n "val pitch\|span \/ 70.0" "$FILE"
-      - name: Find Android project
-        run: |
-          set -eux
-          PROJECT_DIR=$(find build_project -type f \( -name "settings.gradle.kts" -o -name "settings.gradle" \) -printf '%h\n' | head -n 1)
-          test -n "$PROJECT_DIR"
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
       - name: Verify project
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
