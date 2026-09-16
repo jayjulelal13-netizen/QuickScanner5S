@@ -25,15 +25,12 @@ jobs:
           test -d "$ANDROID_HOME"
           test -d "$ANDROID_HOME/platforms/android-35"
           test -d "$ANDROID_HOME/build-tools/35.0.0"
-          "$ANDROID_HOME/platform-tools/adb" version
       - name: Extract FINAL project
         run: |
           set -eux
           rm -rf build_project
           mkdir -p build_project
-          ZIP_FILE="QuickScanner5S_CANDLE_ENGINE_FINAL.zip"
-          test -f "$ZIP_FILE"
-          unzip -q "$ZIP_FILE" -d build_project
+          unzip -q QuickScanner5S_CANDLE_ENGINE_FINAL.zip -d build_project
       - name: Find Android project
         run: |
           set -eux
@@ -45,20 +42,9 @@ jobs:
         run: |
           set -eux
           FILE=app/src/main/java/com/example/screener/CandleAnalyzer.kt
-          python3 - "$FILE" <<'PY'
-import sys
-p=sys.argv[1]
-s=open(p,encoding='utf-8').read()
-s=s.replace('val pitch = if (gaps.size >= 4)', 'val pitch: Double = if (gaps.size >= 4)')
-s=s.replace('max(7.0, span / 70.0)', '(if (span / 70.0 > 7.0) span / 70.0 else 7.0)')
-lines=s.splitlines()
-for i,line in enumerate(lines):
-    if 'leftGap >' in line and 'rightGap >' in line:
-        indent=line[:len(line)-len(line.lstrip())]
-        lines[i]=indent+'if (!((leftGap.toString().toDoubleOrNull() ?: 0.0) > 12.95 && (rightGap.toString().toDoubleOrNull() ?: 0.0) > 12.95)) {'
-        break
-open(p,'w',encoding='utf-8').write('\n'.join(lines)+'\n')
-PY
+          sed -i 's/val pitch = if (gaps.size >= 4)/val pitch: Double = if (gaps.size >= 4)/' "$FILE"
+          sed -i 's/max(7.0, span \/ 70.0)/(if (span \/ 70.0 > 7.0) span \/ 70.0 else 7.0)/g' "$FILE"
+          sed -i '/leftGap >/c\        if (!((leftGap.toString().toDoubleOrNull() ?: 0.0) > 12.95 \&\& (rightGap.toString().toDoubleOrNull() ?: 0.0) > 12.95)) {' "$FILE"
           grep -n "val pitch\|leftGap\|rightGap" "$FILE" | tail -n 8
       - name: Verify project
         working-directory: ${{ env.PROJECT_DIR }}
