@@ -1,4 +1,4 @@
-name: Build QuickScanner5S
+name: Build QuickScanner5S FINAL
 
 on:
   workflow_dispatch:
@@ -31,57 +31,29 @@ jobs:
           test -d "$ANDROID_HOME/build-tools/35.0.0"
           "$ANDROID_HOME/platform-tools/adb" version
 
-      - name: Extract QuickScanner5S project
+      - name: Extract FINAL project
         run: |
           set -eux
-
           rm -rf build_project
           mkdir -p build_project
-
-          ZIP_FILE=$(find . -type f \
-            -name 'QuickScanner5S_5S_CANDLE_FIXED_V8.zip' \
-            -print -quit)
-
-          if [ -z "$ZIP_FILE" ]; then
-            echo "ERROR: Required ZIP not found."
-            echo "ZIP files currently in repository:"
-            find . -type f -name '*.zip' -print
-            exit 1
-          fi
-
-          echo "Using ZIP: $ZIP_FILE"
+          ZIP_FILE="QuickScanner5S_CANDLE_ENGINE_FINAL.zip"
+          test -f "$ZIP_FILE"
           unzip -q "$ZIP_FILE" -d build_project
 
       - name: Find Android project
         run: |
           set -eux
-
-          PROJECT_DIR=$(find build_project \
-            -type f \
-            \( -name "settings.gradle.kts" -o -name "settings.gradle" \) \
-            -printf '%h\n' | head -n 1)
-
-          if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: Android project not found."
-            find build_project -maxdepth 6 -type f | sort
-            exit 1
-          fi
-
-          echo "Android project: $PROJECT_DIR"
+          PROJECT_DIR=$(find build_project -type f \( -name "settings.gradle.kts" -o -name "settings.gradle" \) -printf '%h\n' | head -n 1)
+          test -n "$PROJECT_DIR"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
       - name: Verify project
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
           set -eux
-
-          test -f settings.gradle.kts -o -f settings.gradle
           test -d app
           test -f app/build.gradle.kts -o -f app/build.gradle
-
-          echo "Android project verified."
-          pwd
-          ls -la
+          test -f AndroidManifest.xml || test -f app/src/main/AndroidManifest.xml
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -90,20 +62,18 @@ jobs:
 
       - name: Build APK
         working-directory: ${{ env.PROJECT_DIR }}
-        run: |
-          set -eux
-          gradle :app:assembleDebug --no-daemon --stacktrace
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
 
       - name: Check APK
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
           set -eux
-          ls -lh app/build/outputs/apk/debug/
           test -f app/build/outputs/apk/debug/app-debug.apk
+          ls -lh app/build/outputs/apk/debug/app-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: QuickScanner5S-debug
+          name: QuickScanner5S-FINAL
           path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
