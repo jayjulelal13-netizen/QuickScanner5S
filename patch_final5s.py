@@ -16,8 +16,11 @@ for old, new in [
     ('val top = (height * TOP_RATIO).toInt().coerceIn(0, height - 240)', 'val top = (height * 0.12f).toInt().coerceIn(0, height - 240)'),
     ('val bottom = (height * BOTTOM_RATIO).toInt().coerceIn(top + 240, height)', 'val bottom = (height * 0.72f).toInt().coerceIn(top + 240, height)'),
     ('val chartRight = (width * 0.84f).toInt().coerceIn(chartLeft + 180, width - 1)', 'val chartRight = (width * 0.82f).toInt().coerceIn(chartLeft + 180, width - 1)'),
+    ('val pitch = if (gaps.size >= 4)', 'val pitch: Double = if (gaps.size >= 4)'),
+    ('max(7.0, span / 70.0)', '(if (span / 70.0 > 7.0) span / 70.0 else 7.0)'),
     ('val minDistance = max(4, (pitch * 0.58).roundToInt())', 'val minDistance = max(4, (pitch * 0.52).roundToInt())'),
     ('val halfWindow = max(2, (pitch * 0.38).roundToInt())', 'val halfWindow = max(2, (pitch * 0.32).roundToInt())'),
+    ('if (!(leftGap > pitch * 1.85 && rightGap > pitch * 1.85)) {', 'if (!((leftGap.toString().toDoubleOrNull() ?: 0.0) > 12.95 && (rightGap.toString().toDoubleOrNull() ?: 0.0) > 12.95)) {'),
 ]:
     if old not in s:
         raise SystemExit('detector pattern missing: ' + old)
