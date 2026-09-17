@@ -140,16 +140,37 @@ new4 = '''        // A chart must contain coloured candle pixels spread across t
 if old4 not in c:
     raise SystemExit('chart gate insertion point missing')
 c = c.replace(old4, new4, 1)
+
+# Keep the live overlay useful even when there is no CALL/PUT setup yet.
+# For NO TRADE, show directional setup strength below the 90% trade gate.
+old5 = '''            val liveProbability =
+                if (result.signal == "CALL" || result.signal == "PUT") {
+                    calculateEmpiricalProbability(
+                        candleHistory.takeLast(MAX_HISTORY),
+                        result.signal
+                    )
+                } else {
+                    null
+                }'''
+new5 = '''            val liveProbability =
+                if (result.signal == "CALL" || result.signal == "PUT") {
+                    result.confidence.coerceIn(0, 100)
+                } else {
+                    maxOf(result.bullishScore, result.bearishScore).coerceIn(0, 89)
+                }'''
+if old5 not in c:
+    raise SystemExit('live confidence block missing')
+c = c.replace(old5, new5, 1)
 cap.write_text(c)
 
-# The quick engine broadcasts a dedicated QUICK_5S status. The old overlay
-# ignored that action, so it kept showing the last CANDLE_WAITING confidence 0.
+# The quick engine broadcasts a dedicated QUICK_5S status. The overlay must consume it.
 o = overlay.read_text()
 anchor = '''            when (intent.getStringExtra("status")) {
 '''
 if anchor not in o:
     raise SystemExit('overlay when anchor missing')
-insert = '''            when (intent.getStringExtra("status")) {
+if '"QUICK_5S" -> {' not in o:
+    insert = '''            when (intent.getStringExtra("status")) {
                 "QUICK_5S" -> {
                     val quickSignal = intent.getStringExtra("quickSignal")?.uppercase(Locale.US) ?: "NO TRADE"
                     val quickConfidence = intent.getIntExtra("quickProbability", 0).coerceIn(0, 100)
@@ -162,9 +183,9 @@ insert = '''            when (intent.getStringExtra("status")) {
                     updateOverlay()
                 }
 '''
-o = o.replace(anchor, insert, 1)
+    o = o.replace(anchor, insert, 1)
 overlay.write_text(o)
 
 g = gradle.read_text().replace('applicationId = "com.example.screener"', 'applicationId = "com.example.screener.final5s"')
 gradle.write_text(g)
-print('FINAL 5S candle + engine + no-chart gate + QUICK_5S overlay fix applied')
+print('FINAL 5S candle + engine + live confidence + QUICK_5S overlay fix applied')
