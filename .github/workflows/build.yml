@@ -14,46 +14,43 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
+
       - name: Verify Android SDK
         run: |
           set -eux
           test -d "$ANDROID_HOME"
           test -d "$ANDROID_HOME/platforms/android-35"
           test -d "$ANDROID_HOME/build-tools/35.0.0"
+
       - name: Extract FINAL project
         run: |
           set -eux
           rm -rf build_project
           mkdir -p build_project
           unzip -q QuickScanner5S_CANDLE_ENGINE_FINAL.zip -d build_project
+
       - name: Find Android project
         run: |
           set -eux
           PROJECT_DIR=$(find build_project -type f \( -name "settings.gradle.kts" -o -name "settings.gradle" \) -printf '%h\n' | head -n 1)
           test -n "$PROJECT_DIR"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-      - name: Fix candle detector and 5S engine
-        working-directory: ${{ env.PROJECT_DIR }}
+          echo "PROJECT_DIR=$PROJECT_DIR"
+
+      - name: Apply final candle + 5S engine fix
         run: |
           set -eux
-          FILE=app/src/main/java/com/example/screener/CandleAnalyzer.kt
-          sed -i 's/val pitch = if (gaps.size >= 4)/val pitch: Double = if (gaps.size >= 4)/' "$FILE"
-          sed -i 's/max(7.0, span \/ 70.0)/(if (span \/ 70.0 > 7.0) span \/ 70.0 else 7.0)/g' "$FILE"
-          sed -i '/leftGap >/c\        if (!((leftGap.toString().toDoubleOrNull() ?: 0.0) > 12.95 \&\& (rightGap.toString().toDoubleOrNull() ?: 0.0) > 12.95)) {' "$FILE"
-          # Reduce wick/grid false peaks: body columns need stronger density and
-          # nearby peaks are suppressed over a larger candle-width distance.
-          sed -i 's/val peakThreshold = max(5, (height \* 0.004f).roundToInt())/val peakThreshold = max(10, (height * 0.007f).roundToInt())/' "$FILE"
-          sed -i 's/max(3, (width \* 0.005f).roundToInt())/max(4, (width * 0.009f).roundToInt())/' "$FILE"
-          sed -i 's/private val MIN_EMPIRICAL_SAMPLES = 30/private val MIN_EMPIRICAL_SAMPLES = 5/' app/src/main/java/com/example/screener/CaptureService.kt
-          GRADLE_FILE=app/build.gradle.kts
-          sed -i 's/applicationId = "com.example.screener"/applicationId = "com.example.screener.final5s"/' "$GRADLE_FILE"
-          grep -n "applicationId" "$GRADLE_FILE"
-          grep -n "peakThreshold\|suppressionRadius\|MIN_EMPIRICAL_SAMPLES" "$FILE" app/src/main/java/com/example/screener/CaptureService.kt | tail -n 10
+          python3 patch_final5s.py
+          grep -n "applicationId" "$PROJECT_DIR/app/build.gradle.kts"
+          grep -nE "val top|val bottom|chartRight|minDistance|halfWindow" "$PROJECT_DIR/app/src/main/java/com/example/screener/CandleAnalyzer.kt"
+          grep -nE "val probability|val canTrade|WAIT - 90% SETUP" "$PROJECT_DIR/app/src/main/java/com/example/screener/CaptureService.kt"
+
       - name: Verify project
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
@@ -61,19 +58,23 @@ jobs:
           test -d app
           test -f app/build.gradle.kts -o -f app/build.gradle
           test -f app/src/main/AndroidManifest.xml
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.11.1"
+
       - name: Build APK
         working-directory: ${{ env.PROJECT_DIR }}
         run: gradle :app:assembleDebug --no-daemon --stacktrace
+
       - name: Check APK
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
           set -eux
           test -f app/build/outputs/apk/debug/app-debug.apk
           ls -lh app/build/outputs/apk/debug/app-debug.apk
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
