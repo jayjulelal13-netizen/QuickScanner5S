@@ -28,6 +28,14 @@ for old, new in [
 candle.write_text(s)
 
 c = cap.read_text()
+# The injected chart gate uses android.graphics.Color; make the import explicit.
+if 'import android.graphics.Color' not in c:
+    lines = c.splitlines()
+    insert_at = 0
+    while insert_at < len(lines) and lines[insert_at].startswith('package '):
+        insert_at += 1
+    lines.insert(insert_at, 'import android.graphics.Color')
+    c = '\n'.join(lines) + ('\n' if c.endswith('\n') else '')
 old = '''        val probability =
             if (direction == "CALL" || direction == "PUT") {
                 quickHistoricalProbability(direction)
@@ -78,7 +86,6 @@ new3 = '''                if (probability == null)
 if old3 not in c:
     raise SystemExit('engine status block missing')
 c = c.replace(old3, new3, 1)
-
 old4 = '''        val detected =
             try {
 
