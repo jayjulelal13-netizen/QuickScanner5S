@@ -51,6 +51,71 @@ jobs:
           grep -nE "val top|val bottom|chartRight|minDistance|halfWindow" "$PROJECT_DIR/app/src/main/java/com/example/screener/CandleAnalyzer.kt"
           grep -nE "val probability|val canTrade|WAIT - 90% SETUP" "$PROJECT_DIR/app/src/main/java/com/example/screener/CaptureService.kt"
 
+      - name: Require real chart before candle scan
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          set -eux
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('app/src/main/java/com/example/screener/CaptureService.kt')
+          s = p.read_text()
+          old = '''        val detected =
+            try {
+
+                CandleAnalyzer
+                    .detectVisibleCandles(
+                        bitmap
+                    )
+
+            } catch (e: Exception) {'''
+          new = '''        // Hard pre-gate: colored UI elements alone are not a chart.
+        // Require colored candle pixels distributed across the chart width.
+        val chartLeft = (bitmap.width * 0.02f).toInt().coerceAtLeast(0)
+        val chartRight = (bitmap.width * 0.82f).toInt().coerceAtMost(bitmap.width - 1)
+        val chartTop = (bitmap.height * 0.10f).toInt().coerceAtLeast(0)
+        val chartBottom = (bitmap.height * 0.74f).toInt().coerceAtMost(bitmap.height)
+        var coloredPixels = 0
+        val binHits = IntArray(12)
+        if (chartRight > chartLeft && chartBottom > chartTop) {
+            for (y in chartTop until chartBottom step 4) {
+                for (x in chartLeft..chartRight step 3) {
+                    val pixel = bitmap.getPixel(x, y)
+                    val r = Color.red(pixel)
+                    val g = Color.green(pixel)
+                    val b = Color.blue(pixel)
+                    val green = g >= 80 && g > r + 20 && g > b + 10
+                    val red = r >= 80 && r > g + 20 && r > b + 10
+                    if (green || red) {
+                        coloredPixels++
+                        val bin = (((x - chartLeft) * 12) / maxOf(1, chartRight - chartLeft)).coerceIn(0, 11)
+                        binHits[bin]++
+                    }
+                }
+            }
+        }
+        val activeBins = binHits.count { it >= 3 }
+        if (coloredPixels < 90 || activeBins < 5) {
+            resetWhenChartIsMissing()
+            sendCandleCount(0)
+            sendStatus("NO_CHART_WAITING")
+            return
+        }
+
+        val detected =
+            try {
+
+                CandleAnalyzer
+                    .detectVisibleCandles(
+                        bitmap
+                    )
+
+            } catch (e: Exception) {'''
+          if old not in s:
+              raise SystemExit('chart pre-gate insertion point not found')
+          p.write_text(s.replace(old, new, 1))
+          print('real-chart pre-gate installed')
+          PY
+
       - name: Verify project
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
