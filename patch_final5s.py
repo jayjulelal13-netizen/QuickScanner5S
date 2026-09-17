@@ -6,8 +6,9 @@ if not projects:
 project = projects[0].parent
 candle = project / 'app/src/main/java/com/example/screener/CandleAnalyzer.kt'
 cap = project / 'app/src/main/java/com/example/screener/CaptureService.kt'
+overlay = project / 'app/src/main/java/com/example/screener/OverlayService.kt'
 gradle = project / 'app/build.gradle.kts'
-for f in (candle, cap, gradle):
+for f in (candle, cap, overlay, gradle):
     if not f.exists():
         raise SystemExit(f'missing {f}')
 
@@ -28,7 +29,6 @@ for old, new in [
 candle.write_text(s)
 
 c = cap.read_text()
-# The injected chart gate uses android.graphics.Color; make the import explicit.
 if 'import android.graphics.Color' not in c:
     lines = c.splitlines()
     insert_at = 0
@@ -142,6 +142,29 @@ if old4 not in c:
 c = c.replace(old4, new4, 1)
 cap.write_text(c)
 
+# The quick engine broadcasts a dedicated QUICK_5S status. The old overlay
+# ignored that action, so it kept showing the last CANDLE_WAITING confidence 0.
+o = overlay.read_text()
+anchor = '''            when (intent.getStringExtra("status")) {
+'''
+if anchor not in o:
+    raise SystemExit('overlay when anchor missing')
+insert = '''            when (intent.getStringExtra("status")) {
+                "QUICK_5S" -> {
+                    val quickSignal = intent.getStringExtra("quickSignal")?.uppercase(Locale.US) ?: "NO TRADE"
+                    val quickConfidence = intent.getIntExtra("quickProbability", 0).coerceIn(0, 100)
+                    val quickStatus = intent.getStringExtra("quickStatus") ?: "WAITING"
+                    nextConfidence = quickConfidence
+                    nextSignal = if (quickSignal == "CALL" || quickSignal == "PUT") quickSignal else "NO TRADE"
+                    nextTrend = "5S"
+                    signalLocked = quickSignal == "CALL" || quickSignal == "PUT"
+                    status = quickStatus
+                    updateOverlay()
+                }
+'''
+o = o.replace(anchor, insert, 1)
+overlay.write_text(o)
+
 g = gradle.read_text().replace('applicationId = "com.example.screener"', 'applicationId = "com.example.screener.final5s"')
 gradle.write_text(g)
-print('FINAL 5S candle + engine + no-chart waiting gate applied')
+print('FINAL 5S candle + engine + no-chart gate + QUICK_5S overlay fix applied')
