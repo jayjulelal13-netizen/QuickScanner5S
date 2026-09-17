@@ -78,8 +78,63 @@ new3 = '''                if (probability == null)
 if old3 not in c:
     raise SystemExit('engine status block missing')
 c = c.replace(old3, new3, 1)
+
+old4 = '''        val detected =
+            try {
+
+                CandleAnalyzer
+                    .detectVisibleCandles(
+                        bitmap
+                    )
+
+            } catch (e: Exception) {'''
+new4 = '''        // A chart must contain coloured candle pixels spread across the plot area.
+        // This blocks icons/buttons from being reported as candles when no chart is visible.
+        val chartLeft = (bitmap.width * 0.02f).toInt().coerceAtLeast(0)
+        val chartRight = (bitmap.width * 0.82f).toInt().coerceAtMost(bitmap.width - 1)
+        val chartTop = (bitmap.height * 0.10f).toInt().coerceAtLeast(0)
+        val chartBottom = (bitmap.height * 0.74f).toInt().coerceAtMost(bitmap.height)
+        var coloured = 0
+        val bins = IntArray(12)
+        if (chartRight > chartLeft && chartBottom > chartTop) {
+            for (y in chartTop until chartBottom step 4) {
+                for (x in chartLeft..chartRight step 3) {
+                    val p = bitmap.getPixel(x, y)
+                    val r = Color.red(p)
+                    val g = Color.green(p)
+                    val b = Color.blue(p)
+                    val green = g >= 80 && g > r + 20 && g > b + 10
+                    val red = r >= 80 && r > g + 20 && r > b + 10
+                    if (green || red) {
+                        coloured++
+                        val bin = (((x - chartLeft) * 12) / maxOf(1, chartRight - chartLeft)).coerceIn(0, 11)
+                        bins[bin]++
+                    }
+                }
+            }
+        }
+        val activeBins = bins.count { it >= 3 }
+        if (coloured < 90 || activeBins < 5) {
+            resetWhenChartIsMissing()
+            sendCandleCount(0)
+            sendStatus("NO_CHART_WAITING")
+            return
+        }
+
+        val detected =
+            try {
+
+                CandleAnalyzer
+                    .detectVisibleCandles(
+                        bitmap
+                    )
+
+            } catch (e: Exception) {'''
+if old4 not in c:
+    raise SystemExit('chart gate insertion point missing')
+c = c.replace(old4, new4, 1)
 cap.write_text(c)
 
 g = gradle.read_text().replace('applicationId = "com.example.screener"', 'applicationId = "com.example.screener.final5s"')
 gradle.write_text(g)
-print('FINAL 5S candle + engine patch applied')
+print('FINAL 5S candle + engine + no-chart waiting gate applied')
