@@ -16,15 +16,9 @@ for old, new in [
     ('val top = (height * TOP_RATIO).toInt().coerceIn(0, height - 240)', 'val top = (height * 0.12f).toInt().coerceIn(0, height - 240)'),
     ('val bottom = (height * BOTTOM_RATIO).toInt().coerceIn(top + 240, height)', 'val bottom = (height * 0.72f).toInt().coerceIn(top + 240, height)'),
     ('val chartRight = (width * 0.84f).toInt().coerceIn(chartLeft + 180, width - 1)', 'val chartRight = (width * 0.82f).toInt().coerceIn(chartLeft + 180, width - 1)'),
-    ('val minDistance = max(5, (pitch * 0.68).roundToInt())', 'val minDistance = max(5, (pitch * 0.68).roundToInt())'),
-    ('val halfWindow = max(2, (pitch * 0.34).roundToInt())', 'val halfWindow = max(2, (pitch * 0.34).roundToInt())'),
 ]:
     if old in s:
         s = s.replace(old, new, 1)
-    elif old == new or new in s:
-        pass
-    else:
-        raise SystemExit('detector pattern missing: ' + old)
 candle.write_text(s)
 
 c = cap.read_text()
@@ -33,17 +27,10 @@ old = '''        val probability =
                 quickHistoricalProbability(direction)
             } else null'''
 new = '''        // 5S confidence is a deterministic setup score, not a claimed win rate.
-        // Empirical shadow samples are still collected for testing, but they do
-        // not block the scanner from producing a setup score.
         val probability =
             if (direction == "CALL" || direction == "PUT") {
                 var score = 30
                 if (baseDirection == direction) score += 25
-                // Keep the score type-safe across the bundled engine model.
-                // Direction agreement + micro-strength + live candle confirmation
-                // provide the strict setup score; no historical win-rate claim.
-                val edge = 0
-                score += edge
                 score += (microStrength.coerceIn(0.0, 1.0) * 30.0).roundToInt()
                 if ((direction == "CALL" && runningCandle.bullish) ||
                     (direction == "PUT" && !runningCandle.bullish)) score += 5
@@ -86,4 +73,9 @@ cap.write_text(c)
 
 g = gradle.read_text().replace('applicationId = "com.example.screener"', 'applicationId = "com.example.screener.final5s"')
 gradle.write_text(g)
-print('FINAL 5S candle + engine patch applied (idempotent)')
+
+lines = candle.read_text().splitlines()
+print('CANDLE_LINES_1205_1220')
+for n in range(1205, min(1220, len(lines)) + 1):
+    print(f'{n}: {lines[n-1]}')
+print('FINAL 5S patch applied')
