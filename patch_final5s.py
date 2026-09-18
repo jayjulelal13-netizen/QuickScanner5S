@@ -193,8 +193,8 @@ c = c.replace(old4, new4, 1)
 # into the engine. On the captured portrait layout, ~60-65 visible 5S bars is
 # the expected range; uncertain frames become NO_VALID_CANDLES.
 c = re.sub(
-    r'(?s)(        val detectedRaw =.*?            }\\n)(\\s*\\n\\s*val)',
-    r'''\\1        val detected =
+    r'(?s)(        val detectedRaw =.*?            }\n)(\s*\n\s*val)',
+    r'''\1        val detected =
             if (detectedRaw.size in MIN_SEQUENCE..65) detectedRaw else emptyList()
 
         if (detected.isEmpty()) {
