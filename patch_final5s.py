@@ -19,9 +19,12 @@ for old, new in [
     ('val minDistance = max(5, (pitch * 0.68).roundToInt())', 'val minDistance = max(5, (pitch * 0.68).roundToInt())'),
     ('val halfWindow = max(2, (pitch * 0.34).roundToInt())', 'val halfWindow = max(2, (pitch * 0.34).roundToInt())'),
 ]:
-    if old not in s:
+    if old in s:
+        s = s.replace(old, new, 1)
+    elif old == new or new in s:
+        pass
+    else:
         raise SystemExit('detector pattern missing: ' + old)
-    s = s.replace(old, new, 1)
 candle.write_text(s)
 
 c = cap.read_text()
@@ -45,9 +48,10 @@ new = '''        // 5S confidence is a deterministic setup score, not a claimed 
                     (direction == "PUT" && !runningCandle.bullish)) score += 5
                 score.coerceIn(0, 100)
             } else null'''
-if old not in c:
+if old in c:
+    c = c.replace(old, new, 1)
+elif new not in c:
     raise SystemExit('engine probability block missing')
-c = c.replace(old, new, 1)
 old2 = '''        val canTrade =
             (direction == "CALL" || direction == "PUT") &&
             probability != null &&
@@ -61,9 +65,10 @@ new2 = '''        val canTrade =
             !cooldown &&
             freshSetup &&
             quickSignalDirection == "NONE"'''
-if old2 not in c:
+if old2 in c:
+    c = c.replace(old2, new2, 1)
+elif new2 not in c:
     raise SystemExit('engine gate block missing')
-c = c.replace(old2, new2, 1)
 old3 = '''                if (probability == null)
                     "WAIT - 5S CALIBRATION (90% GATE)"
                 else if (cooldown || !freshSetup)'''
@@ -72,11 +77,12 @@ new3 = '''                if (probability == null)
                 else if (probability < 90)
                     "WAIT - 90% SETUP"
                 else if (cooldown || !freshSetup)'''
-if old3 not in c:
+if old3 in c:
+    c = c.replace(old3, new3, 1)
+elif new3 not in c:
     raise SystemExit('engine status block missing')
-c = c.replace(old3, new3, 1)
 cap.write_text(c)
 
 g = gradle.read_text().replace('applicationId = "com.example.screener"', 'applicationId = "com.example.screener.final5s"')
 gradle.write_text(g)
-print('FINAL 5S candle + engine patch applied')
+print('FINAL 5S candle + engine patch applied (idempotent)')
