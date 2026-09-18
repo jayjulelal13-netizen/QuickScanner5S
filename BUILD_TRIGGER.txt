@@ -1,2 +1,2 @@
-# FINAL 5S REBUILD
-# validated patch script + candle sanity gate
+# STABLE FINAL 5S BUILD
+# restored known-green patch + conservative candle grouping
