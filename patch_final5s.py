@@ -102,6 +102,9 @@ new4 = '''        // A chart must contain coloured candle pixels spread across t
         val chartTop = (bitmap.height * 0.10f).toInt().coerceAtLeast(0)
         val chartBottom = (bitmap.height * 0.74f).toInt().coerceAtMost(bitmap.height)
         var coloured = 0
+        var darkPixels = 0
+        var sampledPixels = 0
+        var luminanceSum = 0L
         val bins = IntArray(12)
         if (chartRight > chartLeft && chartBottom > chartTop) {
             for (y in chartTop until chartBottom step 4) {
@@ -110,6 +113,10 @@ new4 = '''        // A chart must contain coloured candle pixels spread across t
                     val r = Color.red(p)
                     val g = Color.green(p)
                     val b = Color.blue(p)
+                    val lum = (r * 299 + g * 587 + b * 114) / 1000
+                    sampledPixels++
+                    luminanceSum += lum.toLong()
+                    if (lum <= 80) darkPixels++
                     val green = g >= 80 && g > r + 20 && g > b + 10
                     val red = r >= 80 && r > g + 20 && r > b + 10
                     if (green || red) {
@@ -121,7 +128,12 @@ new4 = '''        // A chart must contain coloured candle pixels spread across t
             }
         }
         val activeBins = bins.count { it >= 3 }
-        if (coloured < 90 || activeBins < 5) {
+        val darkRatio = darkPixels.toDouble() / maxOf(1, sampledPixels)
+        val averageLuminance = luminanceSum.toDouble() / maxOf(1, sampledPixels)
+        // Home screen/wallpaper and launcher icons can contain red/green pixels too.
+        // A real Quotex-style chart has a predominantly dark, low-luminance plot.
+        val chartBackgroundLooksReal = darkRatio >= 0.55 && averageLuminance <= 85.0
+        if (coloured < 90 || activeBins < 5 || !chartBackgroundLooksReal) {
             resetWhenChartIsMissing()
             sendCandleCount(0)
             sendStatus("NO_CHART_WAITING")
