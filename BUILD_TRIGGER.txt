@@ -1,2 +1,2 @@
-# 5S scanner rebuild
-# candle-count sanity + strict confidence gate
+# FINAL 5S REBUILD
+# validated patch script + candle sanity gate
