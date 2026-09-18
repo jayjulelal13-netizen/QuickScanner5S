@@ -178,14 +178,26 @@ cap.write_text(c)
 # The quick engine broadcasts a dedicated QUICK_5S status. The overlay must consume it.
 o = overlay.read_text()
 
-# The extracted overlay has a normal status when-block. Insert the 5S-specific
-# states before the existing QUICK_5S branch so stale values are cleared as soon
-# as the chart disappears.
-quick_anchor = '''                "QUICK_5S" -> {'''
-if quick_anchor not in o:
-    raise SystemExit('overlay QUICK_5S branch missing')
-if '"NO_CHART_WAITING" -> {' not in o:
-    no_chart = '''                "NO_CHART_WAITING" -> {
+# The source ZIP contains the normal status when-block. Add the dedicated
+# QUICK_5S branch and a hard reset branch for frames where no chart is visible.
+anchor = '''            when (intent.getStringExtra("status")) {
+'''
+if anchor not in o:
+    raise SystemExit('overlay when anchor missing')
+
+quick = '''                "QUICK_5S" -> {
+                    val quickSignal = intent.getStringExtra("quickSignal")?.uppercase(Locale.US) ?: "NO TRADE"
+                    val quickConfidence = intent.getIntExtra("quickProbability", 0).coerceIn(0, 100)
+                    val quickStatus = intent.getStringExtra("quickStatus") ?: "WAITING"
+                    nextConfidence = quickConfidence
+                    nextSignal = if (quickSignal == "CALL" || quickSignal == "PUT") quickSignal else "NO TRADE"
+                    nextTrend = "5S"
+                    signalLocked = quickSignal == "CALL" || quickSignal == "PUT"
+                    status = quickStatus
+                    updateOverlay()
+                }
+'''
+no_chart = '''                "NO_CHART_WAITING" -> {
                     nextConfidence = 0
                     nextSignal = "NO TRADE"
                     nextTrend = "5S"
@@ -194,8 +206,13 @@ if '"NO_CHART_WAITING" -> {' not in o:
                     updateOverlay()
                 }
 '''
-    o = o.replace(quick_anchor, no_chart + quick_anchor, 1)
+if '"QUICK_5S" -> {' not in o:
+    o = o.replace(anchor, anchor + quick, 1)
+if '"NO_CHART_WAITING" -> {' not in o:
+    qanchor = '                "QUICK_5S" -> {'
+    o = o.replace(qanchor, no_chart + qanchor, 1)
 overlay.write_text(o)
+
 
 g = gradle.read_text().replace('applicationId = "com.example.screener"', 'applicationId = "com.example.screener.final5s"')
 gradle.write_text(g)
