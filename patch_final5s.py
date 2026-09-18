@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 projects = list(Path('.').rglob('settings.gradle.kts'))
 if not projects:
