@@ -57,24 +57,35 @@ new = '''        // V2 5S confluence score: trend 30 + momentum 25 +
                     score += microComponent
                 }
 
-                val structureEdge = if (base != null) {
-                    abs(base.bullishScore - base.bearishScore)
-                        .coerceIn(0, 20)
+                val directionScore = if (base != null) {
+                    if (direction == "CALL") base.bullishScore else base.bearishScore
                 } else 0
+                val oppositeScore = if (base != null) {
+                    if (direction == "CALL") base.bearishScore else base.bullishScore
+                } else 0
+                val structureEdge = (directionScore - oppositeScore)
+                    .coerceIn(0, 20)
                 score += structureEdge
 
-                // CandleAnalyzer's base score incorporates EMA, ADX,
-                // Stochastic and structure checks from completed 1M candles.
-                val composite = if (base != null) {
-                    maxOf(base.bullishScore, base.bearishScore)
-                } else 0
-                score += (composite * 15.0 / 100.0)
+                // Use only the score belonging to the proposed direction.
+                // Never borrow the stronger score from the opposite direction.
+                score += (directionScore * 15.0 / 100.0)
                     .roundToInt().coerceIn(0, 15)
 
-                if ((direction == "CALL" && runningCandle.bullish) ||
-                    (direction == "PUT" && !runningCandle.bullish)) score += 10
+                val candleOk =
+                    (direction == "CALL" && runningCandle.bullish) ||
+                    (direction == "PUT" && !runningCandle.bullish)
+                if (candleOk) score += 10
 
-                score.coerceIn(0, 100)
+                // A 90+ trade requires every major confirmation to be strong.
+                val strongSetup =
+                    baseDirection == direction &&
+                    microComponent >= 20 &&
+                    structureEdge >= 14 &&
+                    directionScore >= 80 &&
+                    candleOk
+
+                if (!strongSetup) 0 else score.coerceIn(90, 100)
             } else {
                 val composite = if (base != null) {
                     maxOf(base.bullishScore, base.bearishScore)
@@ -158,7 +169,7 @@ new4 = '''        // A chart must contain coloured candle pixels spread across t
         // Home screen/wallpaper and launcher icons can contain red/green pixels too.
         // A real Quotex-style chart has a predominantly dark, low-luminance plot.
         val chartBackgroundLooksReal = darkRatio >= 0.55 && averageLuminance <= 85.0
-        if (coloured < 90 || activeBins < 5 || !chartBackgroundLooksReal) {
+        if (coloured < 150 || activeBins < 7 || !chartBackgroundLooksReal) {
             resetWhenChartIsMissing()
             sendCandleCount(0)
             sendStatus("NO_CHART_WAITING")
@@ -193,7 +204,7 @@ new5 = '''            val liveProbability =
                 if (result.signal == "CALL" || result.signal == "PUT") {
                     result.confidence.coerceIn(0, 100)
                 } else {
-                    maxOf(result.bullishScore, result.bearishScore).coerceIn(0, 89)
+                    0
                 }'''
 if old5 not in c:
     raise SystemExit('live confidence block missing')
