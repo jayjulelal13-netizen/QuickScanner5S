@@ -122,7 +122,7 @@ new3 = '''                if (probability == null)
 if old3 not in c:
     raise SystemExit('engine status block missing')
 c = c.replace(old3, new3, 1)
-old4 = '''        val detected =
+old4 = '''        val detectedRaw =
             try {
 
                 CandleAnalyzer
@@ -188,6 +188,26 @@ new4 = '''        // A chart must contain coloured candle pixels spread across t
 if old4 not in c:
     raise SystemExit('chart gate insertion point missing')
 c = c.replace(old4, new4, 1)
+
+# Reject implausibly high 5S candle counts instead of passing UI/wick fragments
+# into the engine. On the captured portrait layout, ~60-65 visible 5S bars is
+# the expected range; uncertain frames become NO_VALID_CANDLES.
+c = re.sub(
+    r'(?s)(        val detectedRaw =.*?            }\\n)(\\s*\\n\\s*val)',
+    r'''\\1        val detected =
+            if (detectedRaw.size in MIN_SEQUENCE..65) detectedRaw else emptyList()
+
+        if (detected.isEmpty()) {
+            resetWhenChartIsMissing()
+            sendCandleCount(0)
+            sendStatus("NO_VALID_CANDLES")
+            return
+        }
+
+\\2''',
+    c,
+    count=1
+)
 
 # Keep the live overlay useful even when there is no CALL/PUT setup yet.
 # For NO TRADE, show directional setup strength below the 90% trade gate.
