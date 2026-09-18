@@ -40,22 +40,47 @@ old = '''        val probability =
             if (direction == "CALL" || direction == "PUT") {
                 quickHistoricalProbability(direction)
             } else null'''
-new = '''        // 5S confidence is a deterministic setup score, not a claimed win rate.
-        // Empirical shadow samples are still collected for testing, but they do
-        // not block the scanner from producing a setup score.
+new = '''        // V2 5S confluence score: trend 30 + momentum 25 +
+        // EMA/structure 20 + ADX/Stochastic composite 15 + candle 10.
+        // This is a setup-quality score, not a claimed win probability.
         val probability =
             if (direction == "CALL" || direction == "PUT") {
-                var score = 30
-                if (baseDirection == direction) score += 25
-                val edge = if (base != null) {
-                    abs(base.bullishScore - base.bearishScore).coerceAtMost(40)
+                var score = 0
+                if (baseDirection == direction) score += 30
+
+                val microComponent =
+                    (microStrength.coerceIn(0.0, 1.0) * 25.0)
+                        .roundToInt()
+                        .coerceIn(0, 25)
+                if ((direction == "CALL" && microBull) ||
+                    (direction == "PUT" && microBear)) {
+                    score += microComponent
+                }
+
+                val structureEdge = if (base != null) {
+                    abs(base.bullishScore - base.bearishScore)
+                        .coerceIn(0, 20)
                 } else 0
-                score += (edge * 0.75).roundToInt()
-                score += (microStrength.coerceIn(0.0, 1.0) * 30.0).roundToInt()
+                score += structureEdge
+
+                // CandleAnalyzer's base score incorporates EMA, ADX,
+                // Stochastic and structure checks from completed 1M candles.
+                val composite = if (base != null) {
+                    maxOf(base.bullishScore, base.bearishScore)
+                } else 0
+                score += (composite * 15.0 / 100.0)
+                    .roundToInt().coerceIn(0, 15)
+
                 if ((direction == "CALL" && runningCandle.bullish) ||
-                    (direction == "PUT" && !runningCandle.bullish)) score += 5
+                    (direction == "PUT" && !runningCandle.bullish)) score += 10
+
                 score.coerceIn(0, 100)
-            } else null'''
+            } else {
+                val composite = if (base != null) {
+                    maxOf(base.bullishScore, base.bearishScore)
+                } else 0
+                (composite * 0.85).roundToInt().coerceIn(0, 89)
+            }'''
 if old not in c:
     raise SystemExit('engine probability block missing')
 c = c.replace(old, new, 1)
