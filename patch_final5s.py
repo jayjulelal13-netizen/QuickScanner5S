@@ -75,7 +75,7 @@ g = gradle.read_text().replace('applicationId = "com.example.screener"', 'applic
 gradle.write_text(g)
 
 lines = candle.read_text().splitlines()
-print('CANDLE_LINES_1205_1220')
-for n in range(1205, min(1220, len(lines)) + 1):
+print('CANDLE_LINES_1170_1220')
+for n in range(1170, min(1220, len(lines)) + 1):
     print(f'{n}: {lines[n-1]}')
 print('FINAL 5S patch applied')
