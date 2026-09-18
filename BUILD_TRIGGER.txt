@@ -1,1 +1,2 @@
-# build trigger
+# 5S scanner rebuild
+# candle-count sanity + strict confidence gate
