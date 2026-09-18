@@ -39,10 +39,11 @@ new = '''        // 5S confidence is a deterministic setup score, not a claimed 
             if (direction == "CALL" || direction == "PUT") {
                 var score = 30
                 if (baseDirection == direction) score += 25
-                val edge = if (base != null) {
-                    abs(base.bullishScore - base.bearishScore).coerceAtMost(40)
-                } else 0
-                score += (edge * 0.75).roundToInt()
+                // Keep the score type-safe across the bundled engine model.
+                // Direction agreement + micro-strength + live candle confirmation
+                // provide the strict setup score; no historical win-rate claim.
+                val edge = 0
+                score += edge
                 score += (microStrength.coerceIn(0.0, 1.0) * 30.0).roundToInt()
                 if ((direction == "CALL" && runningCandle.bullish) ||
                     (direction == "PUT" && !runningCandle.bullish)) score += 5
