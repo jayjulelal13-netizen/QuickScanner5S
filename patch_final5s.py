@@ -178,6 +178,15 @@ cap.write_text(c)
 # The quick engine broadcasts a dedicated QUICK_5S status. The overlay must consume it.
 o = overlay.read_text()
 anchor = '''            when (intent.getStringExtra("status")) {
+                "NO_CHART_WAITING" -> {
+                    // Immediately clear stale candle/confidence values when the chart disappears.
+                    nextConfidence = 0
+                    nextSignal = "NO TRADE"
+                    nextTrend = "5S"
+                    signalLocked = false
+                    status = "NO CHART"
+                    updateOverlay()
+                }
 '''
 if anchor not in o:
     raise SystemExit('overlay when anchor missing')
