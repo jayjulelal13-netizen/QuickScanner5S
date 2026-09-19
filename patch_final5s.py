@@ -194,6 +194,16 @@ for _p in [project / 'app/src/main/java/com/example/screener/MainActivity.kt',
            project / 'app/src/main/java/com/example/screener/OverlayService.kt']:
     if _p.exists():
         print('OVERLAY_DIAG_FILE', _p)
+        _ls=_p.read_text().splitlines()
+        for _n, _line in enumerate(_ls, 1):
+            if any(_k in _line.lower() for _k in ['confidence', 'candles:', 'status:', 'result:', 'quicksignal', 'probability', 'sendbroadcast', 'quickresult']):
+                print(f'OVERLAY_DIAG {_n}: {_line}')
+        if _p.name == 'OverlayService.kt':
+            print('OVERLAY_CONTEXT')
+            for _n in range(65, 125):
+                if _n <= len(_ls):
+                    print(f'OVERLAY_CONTEXT {_n}: {_ls[_n-1]}')
+        print('OVERLAY_DIAG_FILE', _p)
         for _n, _line in enumerate(_p.read_text().splitlines(), 1):
             if any(_k in _line.lower() for _k in ['confidence', 'candles:', 'status:', 'result:', 'quicksignal', 'probability']):
                 print(f'OVERLAY_DIAG {_n}: {_line}')
