@@ -187,7 +187,30 @@ if marker not in c:
 c = c.replace(marker, replacement, 1)
 
 cap.write_text(c)
-print('5S reference sampling fully corrected: no per-frame overwrite')
+
+# FINAL OVERLAY FIX:
+# The overlay previously accepted live confidence only for the LIVE_ANALYSIS status.
+# 5S QUICK can publish its confidence under other statuses, so the UI stayed at 0%.
+ov = project / 'app/src/main/java/com/example/screener/OverlayService.kt'
+if not ov.exists():
+    raise SystemExit('OverlayService.kt missing')
+o = ov.read_text()
+anchor = '        val status = intent.getStringExtra("status") ?: ""'
+replacement = '''        val status = intent.getStringExtra("status") ?: ""
+
+        // Always accept the latest scanner confidence for the 5S overlay.
+        // Do not require a CALL/PUT signal: confidence must be visible while
+        // the setup is building toward the 90% trade gate.
+        if (intent.hasExtra("confidence") && !activeTrade && !signalLocked) {
+            nextConfidence = intent.getIntExtra("confidence", nextConfidence).coerceIn(0, 100)
+        }'''
+if anchor not in o:
+    raise SystemExit('Overlay status anchor missing')
+if 'Always accept the latest scanner confidence' not in o:
+    o = o.replace(anchor, replacement, 1)
+ov.write_text(o)
+print('FINAL OVERLAY CONFIDENCE FIX added')
+
 # Diagnostic: print every source line related to the overlay confidence/status so the next fix targets the actual UI variable.
 for _p in [project / 'app/src/main/java/com/example/screener/MainActivity.kt',
            project / 'app/src/main/java/com/example/screener/CaptureService.kt',
