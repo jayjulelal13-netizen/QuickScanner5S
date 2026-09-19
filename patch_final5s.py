@@ -37,7 +37,8 @@ s = s.replace(
                 (sorted[sorted.size / 2 - 1] + sorted[sorted.size / 2]) / 2.0
             }
         } else {
-            max(7.0, span / 70.0)
+            val fallbackPitch = span.toDouble() / 70.0
+            if (fallbackPitch > 7.0) fallbackPitch else 7.0
         }''', 1)
 candle.write_text(s)
 
