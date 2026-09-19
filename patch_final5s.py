@@ -346,52 +346,26 @@ for _p in [project / 'app/src/main/java/com/example/screener/MainActivity.kt',
 print('5S bucketed reference-price fix added')
 
 # CLEAN CONFIDENCE FINAL FIX
-# The real quick-result code has additional parameters, so patch the unique
-# QUICK_RESULT Intent block instead of guessing its function signature.
-cap = project / 'app/src/main/java/com/example/screener/CaptureService.kt'
-cc = cap.read_text()
+# The real QUICK_RESULT Intent already carries quickProbability + confidence.
+# Only fix the overlay routing here; do not touch candle detection or the
+# existing broadcast method.
 
-# Remove only accidental helper statements; preserve every real Intent extra.
-cc = '\n'.join(
-    line for line in cc.splitlines()
-    if not line.strip().startswith('confidenceIntent.putExtra(')
-) + ('\n' if cc.endswith(('\n', '\r')) else '')
-
-# Normalize the complete unique QUICK_RESULT Intent payload.
-intent_pat = re.compile(
-    r'(?ms)(val intent = Intent\("com\.example\.screener\.final5s\.QUICK_RESULT"\)\s*)'
-    r'.*?'
-    r'(\s*sendBroadcast\(intent\))'
-)
-m = intent_pat.search(cc)
-if not m:
-    raise SystemExit('QUICK_RESULT Intent block missing')
-
-payload = '''val intent = Intent("com.example.screener.final5s.QUICK_RESULT")
-        intent.putExtra("quickSignal", signal)
-        intent.putExtra("quickProbability", probability.coerceIn(0, 100))
-        intent.putExtra("confidence", probability.coerceIn(0, 100))
-        intent.putExtra("status", status)'''
-cc = cc[:m.start()] + payload + m.group(2) + cc[m.end():]
-cap.write_text(cc)
-
-# Dedicated 5S confidence receiver must run before generic status handling.
 ov = project / 'app/src/main/java/com/example/screener/OverlayService.kt'
 if not ov.exists():
     raise SystemExit('OverlayService.kt missing')
 oo = ov.read_text()
 
-# Remove previously inserted quick handler copies.
+# Remove all previously inserted dedicated quick handlers, then install one.
 quick_pat = re.compile(
-    r'(?ms)\s*if \(intent\.hasExtra\("quickProbability"\).*?\n\s*\}'
+    r'(?ms)^\s*if \(intent\.hasExtra\("quickProbability"\).*?^\s*\}'
 )
 oo = quick_pat.sub('', oo)
 
-anchor = 'when (intent.getStringExtra("status"))'
+anchor = '        when (intent.getStringExtra("status"))'
 if anchor not in oo:
     raise SystemExit('Overlay status when-block missing')
 
-handler = '''if (intent.hasExtra("quickProbability") && !activeTrade && !signalLocked) {
+handler = '''        if (intent.hasExtra("quickProbability") && !activeTrade && !signalLocked) {
             val quickConfidence = intent.getIntExtra("quickProbability", 0).coerceIn(0, 100)
             nextConfidence = quickConfidence
             nextSignal = intent.getStringExtra("quickSignal")?.uppercase(Locale.US) ?: "NO TRADE"
@@ -402,33 +376,34 @@ handler = '''if (intent.hasExtra("quickProbability") && !activeTrade && !signalL
             return
         }
 
-        '''
+'''
 oo = oo.replace(anchor, handler + anchor, 1)
 
-# Never let generic confidence=0 overwrite a dedicated QUICK_RESULT.
-oo = re.sub(
-    r'if \(intent\.hasExtra\("confidence"\) && !activeTrade && !signalLocked\) \{\s*'
-    r'nextConfidence = intent\.getIntExtra\("confidence", nextConfidence\)\.coerceIn\(0, 100\)\s*\}',
-    '''if (intent.hasExtra("confidence") && !intent.hasExtra("quickProbability") &&
+# Generic confidence is allowed only when this is NOT a dedicated 5S result.
+generic_pat = re.compile(
+    r'(?ms)(\s*)if \(intent\.hasExtra\("confidence"\) && !activeTrade && !signalLocked\) \{\s*'
+    r'nextConfidence = intent\.getIntExtra\("confidence", nextConfidence\)\.coerceIn\(0, 100\)\s*'
+    r'\}'
+)
+mg = generic_pat.search(oo)
+if mg:
+    indent = mg.group(1)
+    replacement = indent + '''if (intent.hasExtra("confidence") && !intent.hasExtra("quickProbability") &&
             !activeTrade && !signalLocked) {
             nextConfidence = intent.getIntExtra("confidence", nextConfidence).coerceIn(0, 100)
-        }''',
-    oo,
-    count=1
-)
+        }'''
+    oo = oo[:mg.start()] + replacement + oo[mg.end():]
+else:
+    print('GENERIC_CONFIDENCE_BLOCK_NOT_FOUND: existing quick handler is authoritative')
+
 ov.write_text(oo)
 
-# Final checks.
-fc = cap.read_text()
+# Final checks for the actual displayed path.
 fo = ov.read_text()
-if fc.count('Intent("com.example.screener.final5s.QUICK_RESULT")') != 1:
-    raise SystemExit('FINAL CHECK: QUICK_RESULT Intent count invalid')
-if fc.count('putExtra("quickProbability", probability.coerceIn(0, 100))') != 1:
-    raise SystemExit('FINAL CHECK: quickProbability output invalid')
-if fc.count('putExtra("confidence", probability.coerceIn(0, 100))') != 1:
-    raise SystemExit('FINAL CHECK: confidence output invalid')
-if 'sendBroadcast(intent)' not in fc:
-    raise SystemExit('FINAL CHECK: sendBroadcast missing')
 if 'intent.hasExtra("quickProbability")' not in fo:
-    raise SystemExit('FINAL CHECK: quick overlay receiver missing')
-print('CONFIDENCE_FINAL: QUICK_RESULT Intent -> overlay nextConfidence; generic confidence cannot overwrite')
+    raise SystemExit('FINAL CHECK: quick confidence receiver missing')
+if 'nextConfidence = quickConfidence' not in fo:
+    raise SystemExit('FINAL CHECK: quick confidence not assigned to overlay')
+if 'val shownConfidence' not in fo:
+    raise SystemExit('FINAL CHECK: displayed confidence variable missing')
+print('CONFIDENCE_FINAL: QUICK_RESULT -> nextConfidence -> shownConfidence')
