@@ -414,3 +414,22 @@ _diag_lines = candle.read_text().splitlines()
 print('CANDLE_ENGINE_FULL_DIAG')
 for _n in range(1050, min(1350, len(_diag_lines)) + 1):
     print(f'CANDLE_SRC {_n}: {_diag_lines[_n-1]}')
+
+
+# CONFIDENCE DISPLAY LOCK
+# A generic status broadcast may carry confidence=0 after the dedicated 5S
+# result. Never let that generic value overwrite the dedicated quick score.
+ov = project / 'app/src/main/java/com/example/screener/OverlayService.kt'
+oo = ov.read_text()
+oo = oo.replace(
+'''if (intent.hasExtra("confidence") && !activeTrade && !signalLocked) {
+            nextConfidence = intent.getIntExtra("confidence", nextConfidence).coerceIn(0, 100)
+        }''',
+'''if (intent.hasExtra("confidence") && !intent.hasExtra("quickProbability") &&
+            !activeTrade && !signalLocked) {
+            nextConfidence = intent.getIntExtra("confidence", nextConfidence).coerceIn(0, 100)
+        }''',
+1
+)
+ov.write_text(oo)
+print('CONFIDENCE_DISPLAY_LOCK: generic confidence cannot overwrite quick score')
