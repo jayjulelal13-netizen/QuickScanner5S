@@ -163,14 +163,14 @@ c = cap.read_text()
 if 'private var quickLastSampleBucket' not in c:
     c = c.replace(
         'private var quickLastClose = Double.NaN',
-        'private var quickLastClose = Double.NaN\\n    private var quickLastSampleBucket = -1L',
+        'private var quickLastClose = Double.NaN\n    private var quickLastSampleBucket = -1L',
         1
     )
 
 # Add the bucket reset next to every quickLastClose reset.
 c = c.replace(
     '        quickLastClose = Double.NaN',
-    '        quickLastClose = Double.NaN\\n        quickLastSampleBucket = -1L',
+    '        quickLastClose = Double.NaN\n        quickLastSampleBucket = -1L',
     2
 )
 
@@ -183,7 +183,7 @@ for _line in _lines:
         _removed += 1
         continue
     _kept.append(_line)
-c = '\\n'.join(_kept) + ('\\n' if c.endswith(('\\n', '\\r')) else '')
+c = '\n'.join(_kept) + ('\n' if c.endswith(('\n', '\r')) else '')
 print('REMOVED_OLD_QUICK_CLOSE_ASSIGNMENTS', _removed)
 
 # The first frame of a new bucket uses the previous bucket's reference.
