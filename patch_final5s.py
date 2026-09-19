@@ -19,6 +19,25 @@ for old, new in [
 ]:
     if old in s:
         s = s.replace(old, new, 1)
+
+s = s.replace(
+'''        val pitch = if (gaps.size >= 4) {
+            val sorted = gaps.sorted()
+            if (sorted.size % 2 == 1) sorted[sorted.size / 2].toDouble()
+            else (sorted[sorted.size / 2 - 1] + sorted[sorted.size / 2]) / 2.0
+        } else {
+            max(7.0, span / 70.0)
+        }''',
+'''        val pitch: Double = if (gaps.size >= 4) {
+            val sorted = gaps.sorted()
+            if (sorted.size % 2 == 1) {
+                sorted[sorted.size / 2].toDouble()
+            } else {
+                (sorted[sorted.size / 2 - 1] + sorted[sorted.size / 2]) / 2.0
+            }
+        } else {
+            max(7.0, span / 70.0)
+        }''', 1)
 candle.write_text(s)
 
 c = cap.read_text()
@@ -75,7 +94,7 @@ g = gradle.read_text().replace('applicationId = "com.example.screener"', 'applic
 gradle.write_text(g)
 
 lines = candle.read_text().splitlines()
-print('CANDLE_LINES_1170_1220')
-for n in range(1170, min(1220, len(lines)) + 1):
+print('CANDLE_LINES_1185_1205')
+for n in range(1185, min(1205, len(lines)) + 1):
     print(f'{n}: {lines[n-1]}')
-print('FINAL 5S patch applied')
+print('FINAL 5S pitch type fix applied')
