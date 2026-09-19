@@ -117,4 +117,8 @@ for n in range(1185, min(1205, len(lines)) + 1):
 for i, line in enumerate(cap.read_text().splitlines(), 1):
     if "val direction" in line or "var direction" in line or "quickSignalDirection" in line or "microStrength" in line:
         print(f"DIRECTION_SOURCE {i}: {line}")
+cap_lines = cap.read_text().splitlines()
+print('ENGINE_LINES_2785_2900')
+for n in range(2785, min(2900, len(cap_lines)) + 1):
+    print(f'{n}: {cap_lines[n-1]}')
 print('FINAL 5S pitch type fix applied')
