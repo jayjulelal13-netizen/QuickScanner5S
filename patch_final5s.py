@@ -345,6 +345,27 @@ for _p in [project / 'app/src/main/java/com/example/screener/MainActivity.kt',
 
 print('5S bucketed reference-price fix added')
 
+# CLEAN CONFIDENCE PATCH: remove any accidental standalone putExtra lines.
+# The existing quick-result Intent already carries the calculated confidence.
+_cap = cap.read_text()
+_clean = []
+for _line in _cap.splitlines():
+    _t = _line.strip()
+    if _t.startswith('confidenceIntent.putExtra('):
+        continue
+    if _t.startswith('putExtra("quickProbability"'):
+        continue
+    if _t.startswith('putExtra("confidence"'):
+        continue
+    if _t.startswith('putExtra("quickSignal"'):
+        continue
+    if _t.startswith('putExtra("status"'):
+        continue
+    _clean.append(_line)
+cap.write_text('\n'.join(_clean) + ('\n' if _cap.endswith(('\\n', '\\r')) else ''))
+print('CONFIDENCE_CLEANUP: standalone putExtra removed; existing quick-result broadcast retained')
+
+
 # CONFIDENCE-ONLY FINAL FIX
 # Do not touch candle detection here. Rebuild the 5S score from the values
 # already produced by the detector, and make that exact score the displayed score.
