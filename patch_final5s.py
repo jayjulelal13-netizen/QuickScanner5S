@@ -40,6 +40,11 @@ s = s.replace(
             val fallbackPitch = span.toDouble() / 70.0
             if (fallbackPitch > 7.0) fallbackPitch else 7.0
         }''', 1)
+s = s.replace(
+    "if (!(leftGap > pitch * 1.85 && rightGap > pitch * 1.85))",
+    "if (!(leftGap > (span.toDouble() / 70.0) * 1.85 && rightGap > (span.toDouble() / 70.0) * 1.85))",
+    1
+)
 candle.write_text(s)
 
 c = cap.read_text()
