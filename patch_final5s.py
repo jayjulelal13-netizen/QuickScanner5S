@@ -192,7 +192,9 @@ if 'putExtra("quickProbability", probability)' not in c:
 if 'putExtra("confidence", probability)' not in c:
     c = c.replace(
         'putExtra("quickProbability", probability)',
-        'putExtra("quickProbability", probability) + "\n            putExtra(\"confidence\", probability) + "\n            putExtra(\"status\", \"LIVE_ANALYSIS\")"',
+        '''putExtra("quickProbability", probability)
+            putExtra("confidence", probability)
+            putExtra("status", "LIVE_ANALYSIS")''',
         1
     )
 
