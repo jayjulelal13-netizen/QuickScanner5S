@@ -312,6 +312,7 @@ generic = '''if (intent.hasExtra("quickProbability") && !activeTrade && !signalL
                 status = "SCANNING"
             }
             updateOverlay()
+            return
         }
         if (intent.hasExtra("confidence") && !activeTrade && !signalLocked) {
             nextConfidence = intent.getIntExtra("confidence", nextConfidence).coerceIn(0, 100)
