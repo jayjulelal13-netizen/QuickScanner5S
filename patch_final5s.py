@@ -114,4 +114,7 @@ lines = candle.read_text().splitlines()
 print('CANDLE_LINES_1185_1205')
 for n in range(1185, min(1205, len(lines)) + 1):
     print(f'{n}: {lines[n-1]}')
+for i, line in enumerate(cap.read_text().splitlines(), 1):
+    if "val direction" in line or "var direction" in line or "quickSignalDirection" in line or "microStrength" in line:
+        print(f"DIRECTION_SOURCE {i}: {line}")
 print('FINAL 5S pitch type fix applied')
