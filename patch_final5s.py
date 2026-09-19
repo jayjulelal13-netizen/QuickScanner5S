@@ -63,25 +63,58 @@ old = '''        val probability =
             if (direction == "CALL" || direction == "PUT") {
                 quickHistoricalProbability(direction)
             } else null'''
-new = '''        // 5S confidence is ALWAYS calculated from the detected candle.
-        // It is a setup score, not a claimed win probability.
+new = '''        // 5S confidence is calculated from measurable candle evidence.
+        // It is a setup score, NOT a guaranteed win probability.
         val candleRange = (runningCandle.high - runningCandle.low).coerceAtLeast(1.0e-9)
         val bodyRatio = (abs(runningCandle.close - runningCandle.open) / candleRange).coerceIn(0.0, 1.0)
+
+        // Use the recent detected candle sequence as well as the running candle.
+        // This prevents a tiny current candle body from forcing confidence to 0
+        // while the visible 5S sequence is clearly trending.
+        val recent = candleHistory.takeLast(6)
+        var bullCount = 0
+        var bearCount = 0
+        var rangeSum = 0.0
+        for (rc in recent) {
+            if (rc.close > rc.open) bullCount++
+            else if (rc.close < rc.open) bearCount++
+            rangeSum += (rc.high - rc.low).coerceAtLeast(1.0e-9)
+        }
+        val recentMove =
+            if (recent.size >= 2) recent.last().close - recent.first().open else 0.0
+        val recentStrength =
+            if (rangeSum > 0.0) abs(recentMove) / rangeSum else 0.0
+        val recentDirection =
+            when {
+                recent.size >= 3 && bullCount >= 4 && recentMove > 0.0 -> "CALL"
+                recent.size >= 3 && bearCount >= 4 && recentMove < 0.0 -> "PUT"
+                recent.size >= 3 && bullCount > bearCount && recentMove > 0.0 -> "CALL"
+                recent.size >= 3 && bearCount > bullCount && recentMove < 0.0 -> "PUT"
+                else -> "NONE"
+            }
+
         val candleDirection =
             when {
                 microBull -> "CALL"
                 microBear -> "PUT"
                 bodyRatio >= 0.20 && runningCandle.close > runningCandle.open -> "CALL"
                 bodyRatio >= 0.20 && runningCandle.close < runningCandle.open -> "PUT"
-                else -> "NONE"
+                else -> recentDirection
             }
         val setupDirection =
-            if (direction == "CALL" || direction == "PUT") direction else candleDirection
+            when {
+                direction == "CALL" || direction == "PUT" -> direction
+                recentDirection == "CALL" || recentDirection == "PUT" -> recentDirection
+                else -> candleDirection
+            }
 
         var setupScore = if (setupDirection == "CALL" || setupDirection == "PUT") 20 else 0
-        if (setupDirection == baseDirection && setupDirection != "NONE") setupScore += 25
-        else if (baseDirection != "CALL" && baseDirection != "PUT" && setupDirection != "NONE") setupScore += 12
 
+        // Primary strategy agreement is the strongest confirmation.
+        if (setupDirection == baseDirection && setupDirection != "NONE") setupScore += 25
+        else if (baseDirection != "CALL" && baseDirection != "PUT" && setupDirection != "NONE") setupScore += 8
+
+        // Immediate candle movement.
         setupScore += when {
             microStrength >= 0.30 -> 20
             microStrength >= 0.15 -> 15
@@ -89,13 +122,22 @@ new = '''        // 5S confidence is ALWAYS calculated from the detected candle.
             microStrength >= 0.04 -> 5
             else -> 0
         }
-        if (bodyRatio >= 0.60) setupScore += 15
-        else if (bodyRatio >= 0.35) setupScore += 10
-        else if (bodyRatio >= 0.20) setupScore += 5
+
+        // Recent sequence trend.
+        if (recentDirection == setupDirection && setupDirection != "NONE") setupScore += 18
+        else if (recentDirection != "NONE" && setupDirection != "NONE") setupScore += 6
+        if (recentStrength >= 0.45) setupScore += 8
+        else if (recentStrength >= 0.25) setupScore += 5
+        else if (recentStrength >= 0.12) setupScore += 3
+
+        // Current candle body quality.
+        if (bodyRatio >= 0.60) setupScore += 10
+        else if (bodyRatio >= 0.35) setupScore += 7
+        else if (bodyRatio >= 0.20) setupScore += 4
 
         if ((setupDirection == "CALL" && runningCandle.close > runningCandle.open) ||
             (setupDirection == "PUT" && runningCandle.close < runningCandle.open)) {
-            setupScore += 8
+            setupScore += 6
         }
         if (setupDirection == direction && direction != "NONE") setupScore += 5
 
@@ -197,6 +239,14 @@ _remaining = [
 print('REMAINING_QUICK_CLOSE_ASSIGNMENTS', _remaining)
 if _remaining:
     raise SystemExit('old quickLastClose frame overwrite still present')
+
+
+# FINAL ENGINE ENFORCEMENT: never use the stale per-frame close reference.
+c = cap.read_text()
+c = re.sub(r'val microMove = runningCandle\\.close\\s*-\\s*quickLastClose', 'val microMove = runningCandle.close - runningCandle.open', c)
+cap.write_text(c)
+if 'val microMove = runningCandle.close - quickLastClose' in cap.read_text():
+    raise SystemExit('stale quickLastClose microMove remains')
 
 # FINAL OVERLAY FIX:
 # Accept the 5S setup score directly from the quick-result broadcast.
