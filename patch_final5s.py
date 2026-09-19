@@ -261,7 +261,7 @@ cap_text = re.sub(
 )
 cap_text = cap_text.replace(
     'putExtra("quickProbability", probability)',
-    'putExtra("quickProbability", probability)\\n            putExtra("confidence", probability)',
+    'putExtra("quickProbability", probability)' + "\n" + '            putExtra("confidence", probability)',
     1
 )
 cap.write_text(cap_text)
