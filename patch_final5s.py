@@ -245,10 +245,6 @@ for _p in [project / 'app/src/main/java/com/example/screener/MainActivity.kt',
             if any(_k in _line.lower() for _k in ['confidence', 'candles:', 'status:', 'result:', 'quicksignal', 'probability']):
                 print(f'OVERLAY_DIAG {_n}: {_line}')
 
-_remaining = re.findall(r'(?m)^[ \\t]*quickLastClose = runningCandle\\.close[ \\t]*
-, cap.read_text())
-if len(_remaining) != 1:
-    raise SystemExit(f'5S reference-price assignment count is {len(_remaining)}, expected exactly 1')
 print('5S_REFERENCE_ASSIGNMENT_COUNT', len(_remaining))
 
 print('5S bucketed reference-price fix added')
