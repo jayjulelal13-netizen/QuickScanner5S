@@ -343,6 +343,72 @@ for _p in [project / 'app/src/main/java/com/example/screener/MainActivity.kt',
 
 
 print('5S bucketed reference-price fix added')
+
+# CONFIDENCE-ONLY FINAL FIX
+# Do not touch candle detection here. Rebuild the 5S score from the values
+# already produced by the detector, and make that exact score the displayed score.
+cap = project / 'app/src/main/java/com/example/screener/CaptureService.kt'
+cc = cap.read_text()
+
+confidence_anchor = 'val probability = setupScore.coerceIn(0, 100)'
+confidence_replacement = '''val evidenceBodyScore = when {
+    bodyRatio >= 0.65 -> 55
+    bodyRatio >= 0.45 -> 45
+    bodyRatio >= 0.25 -> 35
+    bodyRatio >= 0.12 -> 25
+    else -> 5
+}
+val evidenceTrendScore = when {
+    recent.size >= 5 && (bullCount >= 4 || bearCount >= 4) && recentStrength >= 0.20 -> 35
+    recent.size >= 4 && (bullCount >= 3 || bearCount >= 3) && recentStrength >= 0.12 -> 25
+    recent.size >= 3 && (bullCount != bearCount) -> 15
+    recent.isNotEmpty() -> 5
+    else -> 0
+}
+val evidenceDirectionScore =
+    if (setupDirection == "CALL" || setupDirection == "PUT") 10 else 0
+
+val probability = maxOf(
+    setupScore,
+    evidenceBodyScore + evidenceTrendScore + evidenceDirectionScore
+).coerceIn(5, 100)'''
+if confidence_anchor not in cc:
+    raise SystemExit('confidence anchor missing')
+cc = cc.replace(confidence_anchor, confidence_replacement, 1)
+
+# The quick result is the single source of truth for the confidence shown by the overlay.
+cc = cc.replace(
+    'putExtra("quickProbability", probability)',
+    'putExtra("quickProbability", probability)' + "\n" +
+    '            putExtra("confidence", probability)',
+    1
+)
+cap.write_text(cc)
+
+# Prevent the generic confidence receiver from overwriting the dedicated 5S score.
+ov = project / 'app/src/main/java/com/example/screener/OverlayService.kt'
+oo = ov.read_text()
+oo = oo.replace(
+'''if (intent.hasExtra("confidence") && !intent.hasExtra("quickProbability") &&
+            !activeTrade && !signalLocked) {
+            nextConfidence = intent.getIntExtra("confidence", nextConfidence).coerceIn(0, 100)
+        }''',
+'''if (intent.hasExtra("confidence") && !intent.hasExtra("quickProbability") &&
+            !activeTrade && !signalLocked) {
+            nextConfidence = intent.getIntExtra("confidence", nextConfidence).coerceIn(0, 100)
+        }''', 1)
+ov.write_text(oo)
+
+# Hard assertions: this build's displayed 5S confidence must come from probability.
+final_cap = cap.read_text()
+if 'val probability = maxOf(' not in final_cap:
+    raise SystemExit('confidence formula not installed')
+if 'putExtra("quickProbability", probability)' not in final_cap:
+    raise SystemExit('quick confidence output missing')
+if 'putExtra("confidence", probability)' not in final_cap:
+    raise SystemExit('confidence output missing')
+print('CONFIDENCE_ONLY_FINAL_FIX: installed')
+
 # TEMP DIAGNOSTIC: expose the actual candle detector so the next fix targets real source lines.
 _diag_lines = candle.read_text().splitlines()
 print('CANDLE_ENGINE_FULL_DIAG')
