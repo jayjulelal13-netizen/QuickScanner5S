@@ -82,3 +82,5 @@ jobs:
           name: QuickScanner5S-FINAL-INSTALLABLE
           path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
+# confidence-v3-build
