@@ -188,4 +188,14 @@ c = c.replace(marker, replacement, 1)
 
 cap.write_text(c)
 print('5S reference sampling fully corrected: no per-frame overwrite')
+# Diagnostic: print every source line related to the overlay confidence/status so the next fix targets the actual UI variable.
+for _p in [project / 'app/src/main/java/com/example/screener/MainActivity.kt',
+           project / 'app/src/main/java/com/example/screener/CaptureService.kt',
+           project / 'app/src/main/java/com/example/screener/OverlayService.kt']:
+    if _p.exists():
+        print('OVERLAY_DIAG_FILE', _p)
+        for _n, _line in enumerate(_p.read_text().splitlines(), 1):
+            if any(_k in _line.lower() for _k in ['confidence', 'candles:', 'status:', 'result:', 'quicksignal', 'probability']):
+                print(f'OVERLAY_DIAG {_n}: {_line}')
+
 print('5S bucketed reference-price fix added')
