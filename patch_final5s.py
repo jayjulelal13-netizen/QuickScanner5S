@@ -205,12 +205,12 @@ if not ov.exists():
     raise SystemExit('OverlayService.kt missing')
 o = ov.read_text()
 
-anchor = 'if (intent == null) return'
+# Insert before the main status when-block so every quick-result broadcast can update the overlay.
+anchor = 'when (intent.getStringExtra("status"))'
 if anchor not in o:
-    raise SystemExit('Overlay receiver anchor missing')
+    raise SystemExit('Overlay status when-block missing')
 
-generic = '''if (intent == null) return
-        if (intent.hasExtra("quickProbability") && !activeTrade && !signalLocked) {
+generic = '''if (intent.hasExtra("quickProbability") && !activeTrade && !signalLocked) {
             val quickConfidence = intent.getIntExtra("quickProbability", 0).coerceIn(0, 100)
             nextConfidence = quickConfidence
             nextSignal = intent.getStringExtra("quickSignal")?.uppercase(Locale.US) ?: "NO TRADE"
@@ -221,10 +221,12 @@ generic = '''if (intent == null) return
         }
         if (intent.hasExtra("confidence") && !activeTrade && !signalLocked) {
             nextConfidence = intent.getIntExtra("confidence", nextConfidence).coerceIn(0, 100)
-        }'''
+        }
+
+        when (intent.getStringExtra("status"))'''
 o=o.replace(anchor,generic,1)
 ov.write_text(o)
-print('FINAL 5S confidence receiver fixed')
+print('FINAL 5S overlay receiver fixed')
 # Diagnostic: print every source line related to the overlay confidence/status so the next fix targets the actual UI variable.
 for _p in [project / 'app/src/main/java/com/example/screener/MainActivity.kt',
            project / 'app/src/main/java/com/example/screener/CaptureService.kt',
