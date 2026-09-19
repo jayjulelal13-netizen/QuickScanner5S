@@ -126,8 +126,8 @@ print('QUICK_CLOSE_LINES')
 for n, line in enumerate(cap_lines, 1):
     if "quickLastClose" in line or "quickLastSignal" in line:
         print(f'{n}: {line}')
-# Fix 5S reference-price sampling: keep the close from the START of the current 5-second bucket.
-# The old code overwrote quickLastClose on every capture frame, making microMove ~= 0.
+# Fix 5S reference-price sampling: the old engine overwrote quickLastClose on every frame.
+# Keep ONLY the first close of each 5-second bucket as the reference.
 c = cap.read_text()
 
 if 'private var quickLastSampleBucket' not in c:
@@ -137,10 +137,16 @@ if 'private var quickLastSampleBucket' not in c:
         1
     )
 
-# Add the reset alongside both existing quickLastClose reset points.
-reset_line = '        quickLastClose = Double.NaN'
-reset_with_bucket = '        quickLastClose = Double.NaN\n        quickLastSampleBucket = -1L'
-c = c.replace(reset_line, reset_with_bucket, 2)
+# Reset the bucket together with the existing quickLastClose resets.
+c = c.replace(
+    '        quickLastClose = Double.NaN',
+    '        quickLastClose = Double.NaN\n        quickLastSampleBucket = -1L',
+    2
+)
+
+# Remove EVERY old per-frame overwrite. We will add exactly one guarded assignment below.
+c = c.replace('            quickLastClose = runningCandle.close\n', '')
+c = c.replace('        quickLastClose = runningCandle.close\n', '')
 
 marker = '        val microMove = runningCandle.close - quickLastClose'
 replacement = '''        val quickSampleBucket = System.currentTimeMillis() / 5000L
@@ -149,18 +155,10 @@ replacement = '''        val quickSampleBucket = System.currentTimeMillis() / 50
             quickLastSampleBucket = quickSampleBucket
         }
         val microMove = runningCandle.close - quickLastClose'''
-if marker in c and 'val quickSampleBucket = System.currentTimeMillis() / 5000L' not in c:
-    c = c.replace(marker, replacement, 1)
-elif 'val quickSampleBucket = System.currentTimeMillis() / 5000L' not in c:
+if marker not in c:
     raise SystemExit('microMove marker missing')
-
-# Remove the old end-of-frame overwrite, identified by the signal-bucket update.
-old_tail = '''        quickLastClose = runningCandle.close
-        quickLastSignalBucket = nowBucket'''
-new_tail = '''        // quickLastClose is sampled only at the start of each 5-second bucket.
-        quickLastSignalBucket = nowBucket'''
-if old_tail in c:
-    c = c.replace(old_tail, new_tail, 1)
+c = c.replace(marker, replacement, 1)
 
 cap.write_text(c)
+print('5S reference sampling fully corrected: no per-frame overwrite')
 print('5S bucketed reference-price fix added')
