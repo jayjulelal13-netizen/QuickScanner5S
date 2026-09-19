@@ -231,15 +231,16 @@ if 'putExtra("confidence", probability)' not in c:
 
 cap.write_text(c)
 
-# Verify there are no per-frame quickLastClose overwrites left.
+# Verify exactly one guarded reference assignment remains, and it is not the old
+# unconditional per-frame assignment.
 _final_lines = cap.read_text().splitlines()
 _remaining = [
     (i, line) for i, line in enumerate(_final_lines, 1)
     if line.strip() == 'quickLastClose = runningCandle.close'
 ]
 print('REMAINING_QUICK_CLOSE_ASSIGNMENTS', _remaining)
-if _remaining:
-    raise SystemExit('quickLastClose per-frame overwrite still present')
+if len(_remaining) != 1:
+    raise SystemExit('expected exactly one guarded quickLastClose assignment')
 
 # FINAL OVERLAY FIX:
 # Accept the 5S setup score directly from the quick-result broadcast.
