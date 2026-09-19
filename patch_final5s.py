@@ -126,4 +126,31 @@ print('QUICK_CLOSE_LINES')
 for n, line in enumerate(cap_lines, 1):
     if "quickLastClose" in line or "quickLastSignal" in line:
         print(f'{n}: {line}')
-print('FINAL 5S pitch type fix applied')
+# Fix 5S reference-price sampling: keep the close from the START of the current 5-second bucket.
+# The old code overwrote quickLastClose on every capture frame, making microMove ~= 0.
+c = cap.read_text()
+c = c.replace('private var quickLastClose = Double.NaN', 'private var quickLastClose = Double.NaN\\n    private var quickLastSampleBucket = -1L', 1)
+c = c.replace('quickLastClose = Double.NaN', 'quickLastClose = Double.NaN\\n        quickLastSampleBucket = -1L', 1)
+c = c.replace('quickLastClose = Double.NaN', 'quickLastClose = Double.NaN\\n        quickLastSampleBucket = -1L', 1)
+marker = '        val microMove = runningCandle.close - quickLastClose'
+replacement = '''        val quickSampleBucket = System.currentTimeMillis() / 5000L
+        if (quickLastClose.isNaN() || quickLastSampleBucket != quickSampleBucket) {
+            quickLastClose = runningCandle.close
+            quickLastSampleBucket = quickSampleBucket
+        }
+        val microMove = runningCandle.close - quickLastClose'''
+if marker in c:
+    c = c.replace(marker, replacement, 1)
+else:
+    raise SystemExit('microMove marker missing')
+# Remove the old end-of-frame overwrite; retain the initial guarded assignment.
+needle = '        quickLastClose = runningCandle.close'
+idx = c.find(needle)
+if idx >= 0:
+    idx2 = c.find(needle, idx + len(needle))
+    if idx2 >= 0:
+        c = c[:idx2] + '        // quickLastClose is sampled at the start of each 5-second bucket.' + c[idx2+len(needle):]
+    else:
+        raise SystemExit('second quickLastClose assignment not found')
+cap.write_text(c)
+print('5S bucketed reference-price fix added')
