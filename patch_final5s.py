@@ -346,23 +346,20 @@ for _p in [project / 'app/src/main/java/com/example/screener/MainActivity.kt',
 print('5S bucketed reference-price fix added')
 
 # CLEAN CONFIDENCE FINAL FIX
-# Root cause: QUICK_RESULT was being broadcast on a different Intent action,
-# while OverlayService only listened for FRAME_STATUS. Keep the existing UI and
-# candle engine; route the real confidence through the existing receiver.
+# Root cause: QUICK_RESULT uses a separate Intent action. Wire it into the
+# existing receiver without changing the candle engine or UI layout.
 
 ov = project / 'app/src/main/java/com/example/screener/OverlayService.kt'
 if not ov.exists():
     raise SystemExit('OverlayService.kt missing')
 oo = ov.read_text()
 
-# Accept both the normal frame-status broadcast and the dedicated 5S result.
 oo = oo.replace(
     'if (intent?.action != ACTION_FRAME_STATUS) return',
     'if (intent?.action != ACTION_FRAME_STATUS && intent?.action != "com.example.screener.final5s.QUICK_RESULT") return',
     1
 )
 
-# Register the QUICK_RESULT action in the same receiver.
 oo = oo.replace(
     'val filter = IntentFilter(ACTION_FRAME_STATUS)',
     '''val filter = IntentFilter(ACTION_FRAME_STATUS).apply {
@@ -371,12 +368,13 @@ oo = oo.replace(
     1
 )
 
-# Consume the real quick score before the generic status logic.
-anchor = '            when (intent.getStringExtra("status")) {'
-if anchor not in oo:
+# Insert immediately before the first status dispatch.
+needle = 'when (intent.getStringExtra("status")) {'
+pos = oo.find(needle)
+if pos < 0:
     raise SystemExit('Overlay status dispatch missing')
 
-quick_handler = '''            if (intent.action == "com.example.screener.final5s.QUICK_RESULT" &&
+quick_handler = '''if (intent?.action == "com.example.screener.final5s.QUICK_RESULT" &&
                 !activeTrade && !signalLocked
             ) {
                 nextConfidence =
@@ -388,12 +386,11 @@ quick_handler = '''            if (intent.action == "com.example.screener.final5
                 return
             }
 
-'''
-if 'intent.action == "com.example.screener.final5s.QUICK_RESULT"' not in oo:
-    oo = oo.replace(anchor, quick_handler + anchor, 1)
+            '''
+if 'intent?.action == "com.example.screener.final5s.QUICK_RESULT"' not in oo:
+    oo = oo[:pos] + quick_handler + oo[pos:]
 
-# A normal LIVE_ANALYSIS frame carrying confidence=0 must not erase the
-# already-published 5S score.
+# Prevent a normal frame update carrying confidence=0 from erasing the score.
 oo = oo.replace(
 '''                        nextConfidence = intent.getIntExtra("confidence", nextConfidence)
                         nextTrend = intent.getStringExtra("trend") ?: nextTrend''',
@@ -408,7 +405,6 @@ oo = oo.replace(
 
 ov.write_text(oo)
 
-# Final checks.
 fo = ov.read_text()
 if 'com.example.screener.final5s.QUICK_RESULT' not in fo:
     raise SystemExit('FINAL CHECK: QUICK_RESULT action not wired')
@@ -416,4 +412,4 @@ if 'addAction("com.example.screener.final5s.QUICK_RESULT")' not in fo:
     raise SystemExit('FINAL CHECK: QUICK_RESULT filter missing')
 if 'quickProbability' not in fo:
     raise SystemExit('FINAL CHECK: quickProbability receiver missing')
-print('CONFIDENCE_FINAL: QUICK_RESULT action -> real overlay confidence; zero frame updates cannot erase it')
+print('CONFIDENCE_FINAL: QUICK_RESULT -> nextConfidence -> overlay; zero frame confidence cannot erase it')
