@@ -45,6 +45,16 @@ s = s.replace(
     "if (!(leftGap > (span.toDouble() / 70.0) * 1.85 && rightGap > (span.toDouble() / 70.0) * 1.85))",
     1
 )
+s = s.replace(
+    "val leftGap = if (idx > 0) centres[idx] - centres[idx - 1] else pitch",
+    "val leftGap: Double = if (idx > 0) (centres[idx] - centres[idx - 1]).toDouble() else span.toDouble() / 70.0",
+    1
+)
+s = s.replace(
+    "val rightGap = if (idx < centres.lastIndex) centres[idx + 1] - centres[idx] else pitch",
+    "val rightGap: Double = if (idx < centres.lastIndex) (centres[idx + 1] - centres[idx]).toDouble() else span.toDouble() / 70.0",
+    1
+)
 candle.write_text(s)
 
 c = cap.read_text()
