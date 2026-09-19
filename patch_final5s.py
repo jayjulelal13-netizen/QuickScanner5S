@@ -365,6 +365,24 @@ for _line in _cap.splitlines():
 cap.write_text('\n'.join(_clean) + ('\n' if _cap.endswith(('\\n', '\\r')) else ''))
 print('CONFIDENCE_CLEANUP: standalone putExtra removed; existing quick-result broadcast retained')
 
+# RESTORE QUICK CONFIDENCE OUTPUT IN THE REAL RESULT INTENT.
+# Cleanup above may remove the generated lines; add them to the actual Intent block
+# immediately before sendBroadcast, not as standalone statements.
+_cap = cap.read_text()
+_send = '        sendBroadcast(intent)'
+if _send not in _cap:
+    raise SystemExit('sendBroadcast(intent) missing')
+if 'putExtra("quickProbability", probability)' not in _cap:
+    _cap = _cap.replace(_send,
+        '        intent.putExtra("quickProbability", probability)\\n' +
+        '        intent.putExtra("confidence", probability)\\n' +
+        _send, 1)
+cap.write_text(_cap)
+if 'putExtra("quickProbability", probability)' not in cap.read_text():
+    raise SystemExit('quick confidence output missing after restore')
+print('CONFIDENCE_OUTPUT_RESTORED: real Intent -> quickProbability + confidence')
+
+
 
 # CONFIDENCE-ONLY FINAL FIX
 # Do not touch candle detection here. Rebuild the 5S score from the values
