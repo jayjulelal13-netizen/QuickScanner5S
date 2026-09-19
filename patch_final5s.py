@@ -62,16 +62,43 @@ old = '''        val probability =
             if (direction == "CALL" || direction == "PUT") {
                 quickHistoricalProbability(direction)
             } else null'''
-new = '''        // 5S confidence is a deterministic setup score, not a claimed win rate.
-        val probability =
-            if (direction == "CALL" || direction == "PUT") {
-                var score = 30
-                if (baseDirection == direction) score += 25
-                score += (microStrength.coerceIn(0.0, 1.0) * 30.0).roundToInt()
-                if ((direction == "CALL" && runningCandle.bullish) ||
-                    (direction == "PUT" && !runningCandle.bullish)) score += 5
-                score.coerceIn(0, 100)
-            } else null'''
+new = '''        // 5S confidence is ALWAYS calculated from the detected candle.
+        // It is a setup score, not a claimed win probability.
+        val candleRange = (runningCandle.high - runningCandle.low).coerceAtLeast(1.0e-9)
+        val bodyRatio = (abs(runningCandle.close - runningCandle.open) / candleRange).coerceIn(0.0, 1.0)
+        val candleDirection =
+            when {
+                microBull -> "CALL"
+                microBear -> "PUT"
+                bodyRatio >= 0.20 && runningCandle.close > runningCandle.open -> "CALL"
+                bodyRatio >= 0.20 && runningCandle.close < runningCandle.open -> "PUT"
+                else -> "NONE"
+            }
+        val setupDirection =
+            if (direction == "CALL" || direction == "PUT") direction else candleDirection
+
+        var setupScore = if (setupDirection == "CALL" || setupDirection == "PUT") 20 else 0
+        if (setupDirection == baseDirection && setupDirection != "NONE") setupScore += 25
+        else if (baseDirection != "CALL" && baseDirection != "PUT" && setupDirection != "NONE") setupScore += 12
+
+        setupScore += when {
+            microStrength >= 0.30 -> 20
+            microStrength >= 0.15 -> 15
+            microStrength >= 0.08 -> 10
+            microStrength >= 0.04 -> 5
+            else -> 0
+        }
+        if (bodyRatio >= 0.60) setupScore += 15
+        else if (bodyRatio >= 0.35) setupScore += 10
+        else if (bodyRatio >= 0.20) setupScore += 5
+
+        if ((setupDirection == "CALL" && runningCandle.close > runningCandle.open) ||
+            (setupDirection == "PUT" && runningCandle.close < runningCandle.open)) {
+            setupScore += 8
+        }
+        if (setupDirection == direction && direction != "NONE") setupScore += 5
+
+        val probability = setupScore.coerceIn(0, 100)'''
 if old in c:
     c = c.replace(old, new, 1)
 elif new not in c:
