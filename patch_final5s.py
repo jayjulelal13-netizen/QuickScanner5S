@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 projects = list(Path('.').rglob('settings.gradle.kts'))
@@ -172,8 +173,7 @@ c = c.replace(
 )
 
 # Remove EVERY old per-frame overwrite. We will add exactly one guarded assignment below.
-c = c.replace('            quickLastClose = runningCandle.close\n', '')
-c = c.replace('        quickLastClose = runningCandle.close\n', '')
+c = re.sub(r'(?m)^[ \\t]*quickLastClose = runningCandle\\.close[ \\t]*\\n', '', c)
 
 marker = '        val microMove = runningCandle.close - quickLastClose'
 replacement = '''        val quickSampleBucket = System.currentTimeMillis() / 5000L
@@ -186,25 +186,45 @@ if marker not in c:
     raise SystemExit('microMove marker missing')
 c = c.replace(marker, replacement, 1)
 
+# Wire the quick setup score into the generic confidence channel consumed by the overlay.
+if 'putExtra("quickProbability", probability)' not in c:
+    raise SystemExit('quickProbability sender not found in CaptureService')
+if 'putExtra("confidence", probability)' not in c:
+    c = c.replace(
+        'putExtra("quickProbability", probability)',
+        'putExtra("quickProbability", probability)\\n            putExtra("confidence", probability)\\n            putExtra("status", "LIVE_ANALYSIS")',
+        1
+    )
+
 cap.write_text(c)
 
 # FINAL OVERLAY FIX:
-# Accept confidence directly whenever a scanner broadcast carries it.
+# Accept the 5S setup score directly from the quick-result broadcast.
 ov = project / 'app/src/main/java/com/example/screener/OverlayService.kt'
 if not ov.exists():
     raise SystemExit('OverlayService.kt missing')
 o = ov.read_text()
-needle = 'val confidence = intent.getIntExtra("confidence", 0)'
-if needle not in o:
-    raise SystemExit('Overlay confidence receiver missing')
-replacement = '''val confidence = intent.getIntExtra("confidence", 0)
-                    if (intent.hasExtra("confidence") && !activeTrade && !signalLocked) {
-                        nextConfidence = confidence.coerceIn(0, 100)
-                    }'''
-if 'nextConfidence = confidence.coerceIn(0, 100)' not in o:
-    o = o.replace(needle, replacement, 1)
+
+anchor = 'if (intent == null) return'
+if anchor not in o:
+    raise SystemExit('Overlay receiver anchor missing')
+
+generic = '''if (intent == null) return
+        if (intent.hasExtra("quickProbability") && !activeTrade && !signalLocked) {
+            val quickConfidence = intent.getIntExtra("quickProbability", 0).coerceIn(0, 100)
+            nextConfidence = quickConfidence
+            nextSignal = intent.getStringExtra("quickSignal")?.uppercase(Locale.US) ?: "NO TRADE"
+            if (intent.getStringExtra("status") == "LIVE_ANALYSIS") {
+                status = "SCANNING"
+            }
+            updateOverlay()
+        }
+        if (intent.hasExtra("confidence") && !activeTrade && !signalLocked) {
+            nextConfidence = intent.getIntExtra("confidence", nextConfidence).coerceIn(0, 100)
+        }'''
+o=o.replace(anchor,generic,1)
 ov.write_text(o)
-print('FINAL OVERLAY CONFIDENCE FIX added')
+print('FINAL 5S confidence receiver fixed')
 # Diagnostic: print every source line related to the overlay confidence/status so the next fix targets the actual UI variable.
 for _p in [project / 'app/src/main/java/com/example/screener/MainActivity.kt',
            project / 'app/src/main/java/com/example/screener/CaptureService.kt',
@@ -224,5 +244,11 @@ for _p in [project / 'app/src/main/java/com/example/screener/MainActivity.kt',
         for _n, _line in enumerate(_p.read_text().splitlines(), 1):
             if any(_k in _line.lower() for _k in ['confidence', 'candles:', 'status:', 'result:', 'quicksignal', 'probability']):
                 print(f'OVERLAY_DIAG {_n}: {_line}')
+
+_remaining = re.findall(r'(?m)^[ \\t]*quickLastClose = runningCandle\\.close[ \\t]*
+, cap.read_text())
+if len(_remaining) != 1:
+    raise SystemExit(f'5S reference-price assignment count is {len(_remaining)}, expected exactly 1')
+print('5S_REFERENCE_ASSIGNMENT_COUNT', len(_remaining))
 
 print('5S bucketed reference-price fix added')
