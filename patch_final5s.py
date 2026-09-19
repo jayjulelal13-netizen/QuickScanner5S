@@ -251,3 +251,8 @@ for _p in [project / 'app/src/main/java/com/example/screener/MainActivity.kt',
 
 
 print('5S bucketed reference-price fix added')
+# TEMP DIAGNOSTIC: expose the actual candle detector so the next fix targets real source lines.
+_diag_lines = candle.read_text().splitlines()
+print('CANDLE_ENGINE_FULL_DIAG')
+for _n in range(1050, min(1350, len(_diag_lines)) + 1):
+    print(f'CANDLE_SRC {_n}: {_diag_lines[_n-1]}')
