@@ -1,5 +1,5 @@
 name: Build QuickScanner5S FINAL
-# 5S confidence pipeline rebuild
+# 5S confidence-only rebuild
 
 on:
   workflow_dispatch:
