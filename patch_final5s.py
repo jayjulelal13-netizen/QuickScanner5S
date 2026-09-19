@@ -267,6 +267,9 @@ cap_text = cap_text.replace(
 cap.write_text(cap_text)
 
 # Overlay must prefer the dedicated 5S confidence whenever that broadcast exists.
+ov = project / 'app/src/main/java/com/example/screener/OverlayService.kt'
+if not ov.exists():
+    raise SystemExit('OverlayService.kt missing')
 ov_text = ov.read_text()
 old_conf = '''if (intent.hasExtra("confidence") && !activeTrade && !signalLocked) {
             nextConfidence = intent.getIntExtra("confidence", nextConfidence).coerceIn(0, 100)
