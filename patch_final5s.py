@@ -345,133 +345,98 @@ for _p in [project / 'app/src/main/java/com/example/screener/MainActivity.kt',
 
 print('5S bucketed reference-price fix added')
 
-# CLEAN CONFIDENCE PATCH: remove any accidental standalone putExtra lines.
-# The existing quick-result Intent already carries the calculated confidence.
-_cap = cap.read_text()
-_clean = []
-for _line in _cap.splitlines():
-    _t = _line.strip()
-    if _t.startswith('confidenceIntent.putExtra('):
-        continue
-    if _t.startswith('putExtra("quickProbability"'):
-        continue
-    if _t.startswith('putExtra("confidence"'):
-        continue
-    if _t.startswith('putExtra("quickSignal"'):
-        continue
-    if _t.startswith('putExtra("status"'):
-        continue
-    _clean.append(_line)
-cap.write_text('\n'.join(_clean) + ('\n' if _cap.endswith(('\\n', '\\r')) else ''))
-print('CONFIDENCE_CLEANUP: standalone putExtra removed; existing quick-result broadcast retained')
-
-# RESTORE QUICK CONFIDENCE OUTPUT IN THE REAL RESULT INTENT.
-# Cleanup above may remove the generated lines; add them to the actual Intent block
-# immediately before sendBroadcast, not as standalone statements.
-_cap = cap.read_text()
-_send = '        sendBroadcast(intent)'
-if _send not in _cap:
-    raise SystemExit('sendBroadcast(intent) missing')
-if 'putExtra("quickProbability", probability)' not in _cap:
-    _cap = _cap.replace(_send,
-        '        intent.putExtra("quickProbability", probability)\\n' +
-        '        intent.putExtra("confidence", probability)\\n' +
-        _send, 1)
-cap.write_text(_cap)
-if 'putExtra("quickProbability", probability)' not in cap.read_text():
-    raise SystemExit('quick confidence output missing after restore')
-print('CONFIDENCE_OUTPUT_RESTORED: real Intent -> quickProbability + confidence')
-
-
-
-# CONFIDENCE-ONLY FINAL FIX
-# Do not touch candle detection here. Rebuild the 5S score from the values
-# already produced by the detector, and make that exact score the displayed score.
+# CLEAN CONFIDENCE FINAL FIX
+# Keep the existing candle engine untouched. Make the real quick-result Intent
+# the single source of truth for the 5S confidence shown by the overlay.
 cap = project / 'app/src/main/java/com/example/screener/CaptureService.kt'
 cc = cap.read_text()
 
-confidence_anchor = 'val probability = setupScore.coerceIn(0, 100)'
-confidence_replacement = '''val evidenceBodyScore = when {
-    bodyRatio >= 0.65 -> 55
-    bodyRatio >= 0.45 -> 45
-    bodyRatio >= 0.25 -> 35
-    bodyRatio >= 0.12 -> 25
-    else -> 5
-}
-val evidenceTrendScore = when {
-    recent.size >= 5 && (bullCount >= 4 || bearCount >= 4) && recentStrength >= 0.20 -> 35
-    recent.size >= 4 && (bullCount >= 3 || bearCount >= 3) && recentStrength >= 0.12 -> 25
-    recent.size >= 3 && (bullCount != bearCount) -> 15
-    recent.isNotEmpty() -> 5
-    else -> 0
-}
-val evidenceDirectionScore =
-    if (setupDirection == "CALL" || setupDirection == "PUT") 10 else 0
+# Remove only accidental standalone confidence-helper statements from earlier
+# experimental patches. Never remove Intent.putExtra(...) lines from the real
+# broadcast method.
+_cc_lines = []
+for _line in cc.splitlines():
+    _t = _line.strip()
+    if _t.startswith('confidenceIntent.putExtra('):
+        continue
+    _cc_lines.append(_line)
+cc = '\n'.join(_cc_lines) + ('\n' if cc.endswith(('\n', '\r')) else '')
 
-val probability = maxOf(
-    setupScore,
-    evidenceBodyScore + evidenceTrendScore + evidenceDirectionScore
-).coerceIn(5, 100)
-
-'''
-if confidence_anchor not in cc:
-    raise SystemExit('confidence anchor missing')
-cc = cc.replace(confidence_anchor, confidence_replacement, 1)
-
-# The quick result is the single source of truth for the confidence shown by the overlay.
-cc = cc.replace(
-    'putExtra("quickProbability", probability)',
-    'putExtra("quickProbability", probability)' + "\n" +
-    '            putExtra("confidence", probability)',
-    1
+# Replace the complete quick-result method body deterministically.
+_method = re.compile(
+    r'(?ms)^    private fun broadcastQuickResult\(\s*'
+    r'signal: String,\s*probability: Int,\s*status: String\s*'
+    r'\)\s*\{.*?^    \}'
 )
+_match = _method.search(cc)
+if not _match:
+    raise SystemExit('broadcastQuickResult method missing')
+
+_new_method = '''    private fun broadcastQuickResult(
+        signal: String,
+        probability: Int,
+        status: String
+    ) {
+        val intent = Intent("com.example.screener.final5s.QUICK_RESULT")
+        intent.putExtra("quickSignal", signal)
+        intent.putExtra("quickProbability", probability.coerceIn(0, 100))
+        intent.putExtra("confidence", probability.coerceIn(0, 100))
+        intent.putExtra("status", status)
+        sendBroadcast(intent)
+    }'''
+cc = cc[:_match.start()] + _new_method + cc[_match.end():]
 cap.write_text(cc)
 
-# Prevent the generic confidence receiver from overwriting the dedicated 5S score.
+# Overlay: dedicated 5S confidence must be handled before generic broadcasts.
 ov = project / 'app/src/main/java/com/example/screener/OverlayService.kt'
+if not ov.exists():
+    raise SystemExit('OverlayService.kt missing')
 oo = ov.read_text()
-oo = oo.replace(
-'''if (intent.hasExtra("confidence") && !intent.hasExtra("quickProbability") &&
-            !activeTrade && !signalLocked) {
-            nextConfidence = intent.getIntExtra("confidence", nextConfidence).coerceIn(0, 100)
-        }''',
-'''if (intent.hasExtra("confidence") && !intent.hasExtra("quickProbability") &&
-            !activeTrade && !signalLocked) {
-            nextConfidence = intent.getIntExtra("confidence", nextConfidence).coerceIn(0, 100)
-        }''', 1)
-ov.write_text(oo)
 
-# Hard assertions: this build's displayed 5S confidence must come from probability.
-final_cap = cap.read_text()
-if 'val probability = maxOf(' not in final_cap:
-    raise SystemExit('confidence formula not installed')
-if 'putExtra("quickProbability", probability)' not in final_cap:
-    raise SystemExit('quick confidence output missing')
-if 'putExtra("confidence", probability)' not in final_cap:
-    raise SystemExit('confidence output missing')
-print('CONFIDENCE_ONLY_FINAL_FIX: installed')
+quick_handler = '''if (intent.hasExtra("quickProbability") && !activeTrade && !signalLocked) {
+            val quickConfidence = intent.getIntExtra("quickProbability", 0).coerceIn(0, 100)
+            nextConfidence = quickConfidence
+            nextSignal = intent.getStringExtra("quickSignal")?.uppercase(Locale.US) ?: "NO TRADE"
+            if (intent.getStringExtra("status") == "LIVE_ANALYSIS") {
+                status = "SCANNING"
+            }
+            updateOverlay()
+            return
+        }'''
 
-# TEMP DIAGNOSTIC: expose the actual candle detector so the next fix targets real source lines.
-_diag_lines = candle.read_text().splitlines()
-print('CANDLE_ENGINE_FULL_DIAG')
-for _n in range(1050, min(1350, len(_diag_lines)) + 1):
-    print(f'CANDLE_SRC {_n}: {_diag_lines[_n-1]}')
-
-
-# CONFIDENCE DISPLAY LOCK
-# A generic status broadcast may carry confidence=0 after the dedicated 5S
-# result. Never let that generic value overwrite the dedicated quick score.
-ov = project / 'app/src/main/java/com/example/screener/OverlayService.kt'
-oo = ov.read_text()
-oo = oo.replace(
-'''if (intent.hasExtra("confidence") && !activeTrade && !signalLocked) {
-            nextConfidence = intent.getIntExtra("confidence", nextConfidence).coerceIn(0, 100)
-        }''',
-'''if (intent.hasExtra("confidence") && !intent.hasExtra("quickProbability") &&
-            !activeTrade && !signalLocked) {
-            nextConfidence = intent.getIntExtra("confidence", nextConfidence).coerceIn(0, 100)
-        }''',
-1
+# Remove duplicate copies of the dedicated handler, then install exactly one
+# immediately before the status dispatch.
+_pattern = re.compile(
+    r'(?ms)\s*if \(intent\.hasExtra\("quickProbability"\).*?\n        \}'
 )
+oo = _pattern.sub('', oo)
+
+_anchor = '        when (intent.getStringExtra("status"))'
+if _anchor not in oo:
+    raise SystemExit('Overlay status when-block missing')
+oo = oo.replace(_anchor, '        ' + quick_handler + '\n\n' + _anchor, 1)
+
+# Generic confidence may update the overlay only when it is NOT a 5S result.
+_generic_old = '''if (intent.hasExtra("confidence") && !activeTrade && !signalLocked) {
+            nextConfidence = intent.getIntExtra("confidence", nextConfidence).coerceIn(0, 100)
+        }'''
+_generic_new = '''if (intent.hasExtra("confidence") && !intent.hasExtra("quickProbability") &&
+            !activeTrade && !signalLocked) {
+            nextConfidence = intent.getIntExtra("confidence", nextConfidence).coerceIn(0, 100)
+        }'''
+oo = oo.replace(_generic_old, _generic_new, 1)
 ov.write_text(oo)
-print('CONFIDENCE_DISPLAY_LOCK: generic confidence cannot overwrite quick score')
+
+# Final hard assertions. These fail the build before APK compilation if the
+# confidence path is broken, instead of producing another misleading APK.
+_final_cap = cap.read_text()
+_final_ov = ov.read_text()
+if _final_cap.count('putExtra("quickProbability", probability.coerceIn(0, 100))') != 1:
+    raise SystemExit('FINAL CHECK: quickProbability must exist exactly once in real Intent')
+if _final_cap.count('putExtra("confidence", probability.coerceIn(0, 100))') != 1:
+    raise SystemExit('FINAL CHECK: confidence must exist exactly once in real Intent')
+if 'sendBroadcast(intent)' not in _final_cap:
+    raise SystemExit('FINAL CHECK: quick result broadcast missing')
+if 'intent.hasExtra("quickProbability")' not in _final_ov:
+    raise SystemExit('FINAL CHECK: overlay quick confidence receiver missing')
+print('CONFIDENCE_FINAL: real Intent -> dedicated quick overlay -> no generic overwrite')
