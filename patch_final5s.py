@@ -174,7 +174,7 @@ for _line in _lines:
     if _s == 'private var quickLastSampleBucket = -1L':
         continue
     _kept.append(_line)
-c = '\\n'.join(_kept) + ('\\n' if c.endswith(('\\n', '\\r')) else '')
+c = '\n'.join(_kept) + ('\n' if c.endswith(('\n', '\r')) else '')
 print('REMOVED_OLD_QUICK_CLOSE_ASSIGNMENTS', _removed)
 
 marker = '        val microMove = runningCandle.close - quickLastClose'
