@@ -248,6 +248,47 @@ cap.write_text(c)
 if 'val microMove = runningCandle.close - quickLastClose' in cap.read_text():
     raise SystemExit('stale quickLastClose microMove remains')
 
+
+# FINAL PIPELINE ENFORCEMENT:
+# 1) The live 5S score must never depend on a stale frame reference.
+# 2) The exact score must be sent through BOTH quickProbability and confidence
+#    so the overlay cannot fall back to its generic zero-confidence channel.
+cap_text = cap.read_text()
+cap_text = re.sub(
+    r'val microMove = runningCandle\\.close\\s*-\\s*quickLastClose',
+    'val microMove = runningCandle.close - runningCandle.open',
+    cap_text
+)
+cap_text = cap_text.replace(
+    'putExtra("quickProbability", probability)',
+    'putExtra("quickProbability", probability)\\n            putExtra("confidence", probability)',
+    1
+)
+cap.write_text(cap_text)
+
+# Overlay must prefer the dedicated 5S confidence whenever that broadcast exists.
+ov_text = ov.read_text()
+old_conf = '''if (intent.hasExtra("confidence") && !activeTrade && !signalLocked) {
+            nextConfidence = intent.getIntExtra("confidence", nextConfidence).coerceIn(0, 100)
+        }'''
+new_conf = '''if (intent.hasExtra("confidence") && !intent.hasExtra("quickProbability") &&
+            !activeTrade && !signalLocked) {
+            nextConfidence = intent.getIntExtra("confidence", nextConfidence).coerceIn(0, 100)
+        }'''
+if old_conf in ov_text:
+    ov_text = ov_text.replace(old_conf, new_conf, 1)
+ov.write_text(ov_text)
+
+# Final source assertions.
+_final_cap = cap.read_text()
+if 'val microMove = runningCandle.close - quickLastClose' in _final_cap:
+    raise SystemExit('PIPELINE FAIL: stale quickLastClose microMove remains')
+if 'putExtra("quickProbability", probability)' not in _final_cap:
+    raise SystemExit('PIPELINE FAIL: quickProbability broadcast missing')
+if 'putExtra("confidence", probability)' not in _final_cap:
+    raise SystemExit('PIPELINE FAIL: confidence broadcast missing')
+print('PIPELINE_FINAL: 5S engine -> quickProbability + confidence -> overlay')
+
 # FINAL OVERLAY FIX:
 # Accept the 5S setup score directly from the quick-result broadcast.
 ov = project / 'app/src/main/java/com/example/screener/OverlayService.kt'
