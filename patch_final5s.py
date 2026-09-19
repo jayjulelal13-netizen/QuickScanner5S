@@ -121,4 +121,9 @@ cap_lines = cap.read_text().splitlines()
 print('ENGINE_LINES_2785_2900')
 for n in range(2785, min(2900, len(cap_lines)) + 1):
     print(f'{n}: {cap_lines[n-1]}')
+cap_lines = cap.read_text().splitlines()
+print('QUICK_CLOSE_LINES')
+for n, line in enumerate(cap_lines, 1):
+    if "quickLastClose" in line or "quickLastSignal" in line:
+        print(f'{n}: {line}')
 print('FINAL 5S pitch type fix applied')
