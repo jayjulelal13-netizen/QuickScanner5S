@@ -154,93 +154,49 @@ print('QUICK_CLOSE_LINES')
 for n, line in enumerate(cap_lines, 1):
     if "quickLastClose" in line or "quickLastSignal" in line:
         print(f'{n}: {line}')
-# Fix 5S reference-price sampling robustly.
-# The old engine overwrote quickLastClose on every frame, so microMove became 0.
-# For each new 5-second bucket, compare the first frame of that bucket against
-# the previous bucket reference, then store the current close for the next bucket.
+# Fix 5S movement sampling deterministically.
+# The previous frame-reference approach could become zero because the running
+# candle was refreshed from the same detected frame. For QUICK mode the most
+# reliable immediate movement is the detected candle body: close - open.
 c = cap.read_text()
 
-if 'private var quickLastSampleBucket' not in c:
-    c = c.replace(
-        'private var quickLastClose = Double.NaN',
-        'private var quickLastClose = Double.NaN\n    private var quickLastSampleBucket = -1L',
-        1
-    )
-
-# Add the bucket reset next to every quickLastClose reset.
-c = c.replace(
-    '        quickLastClose = Double.NaN',
-    '        quickLastClose = Double.NaN\n        quickLastSampleBucket = -1L',
-    2
-)
-
-# Remove every old assignment, regardless of CRLF/LF or indentation.
+# Remove any old quickLastClose frame assignments and any stale sampling state.
 _lines = c.splitlines()
-_removed = 0
 _kept = []
+_removed = 0
 for _line in _lines:
-    if _line.strip() == 'quickLastClose = runningCandle.close':
+    _s = _line.strip()
+    if _s == 'quickLastClose = runningCandle.close':
         _removed += 1
         continue
+    if _s == 'quickLastSampleBucket = -1L':
+        continue
+    if _s == 'private var quickLastSampleBucket = -1L':
+        continue
     _kept.append(_line)
-c = '\n'.join(_kept) + ('\n' if c.endswith(('\n', '\r')) else '')
+c = '\\n'.join(_kept) + ('\\n' if c.endswith(('\\n', '\\r')) else '')
 print('REMOVED_OLD_QUICK_CLOSE_ASSIGNMENTS', _removed)
 
-# The first frame of a new bucket uses the previous bucket's reference.
-# Then update the reference after the current bucket's analysis has been made.
 marker = '        val microMove = runningCandle.close - quickLastClose'
-replacement_micro = '''        val quickSampleBucket = System.currentTimeMillis() / 5000L
-        val quickReferenceReady =
-            !quickLastClose.isNaN() &&
-            quickLastSampleBucket >= 0L
-        val microMove =
-            if (quickReferenceReady) {
-                runningCandle.close - quickLastClose
-            } else {
-                0.0
-            }'''
 if marker not in c:
     raise SystemExit('microMove marker missing')
+replacement_micro = '''        // QUICK movement is the detected candle body, not a per-frame
+        // reference that can collapse to zero while the same candle is sampled.
+        val microMove = runningCandle.close - runningCandle.open'''
 c = c.replace(marker, replacement_micro, 1)
 
-# Update the reference only after the signal calculation block has run.
-anchor_after_calc = '''        val probability = setupScore.coerceIn(0, 100)'''
-if anchor_after_calc not in c:
-    raise SystemExit('probability anchor missing')
-c = c.replace(
-    anchor_after_calc,
-    anchor_after_calc + '''
-        if (quickLastSampleBucket != quickSampleBucket) {
-            quickLastClose = runningCandle.close
-            quickLastSampleBucket = quickSampleBucket
-        }''',
-    1
-)
-
-# Wire the quick setup score into the generic confidence channel consumed by the overlay.
-if 'putExtra("quickProbability", probability)' not in c:
-    raise SystemExit('quickProbability sender not found in CaptureService')
-if 'putExtra("confidence", probability)' not in c:
-    c = c.replace(
-        'putExtra("quickProbability", probability)',
-        '''putExtra("quickProbability", probability)
-            putExtra("confidence", probability)
-            putExtra("status", "LIVE_ANALYSIS")''',
-        1
-    )
-
+# The score is calculated from the actual detected candle on every frame.
+# No historical seed and no fake probability is introduced.
 cap.write_text(c)
 
-# Verify exactly one guarded reference assignment remains, and it is not the old
-# unconditional per-frame assignment.
 _final_lines = cap.read_text().splitlines()
 _remaining = [
     (i, line) for i, line in enumerate(_final_lines, 1)
     if line.strip() == 'quickLastClose = runningCandle.close'
 ]
 print('REMAINING_QUICK_CLOSE_ASSIGNMENTS', _remaining)
-if len(_remaining) != 1:
-    raise SystemExit('expected exactly one guarded quickLastClose assignment')
+if _remaining:
+    raise SystemExit('old quickLastClose frame overwrite still present')
 
 # FINAL OVERLAY FIX:
 # Accept the 5S setup score directly from the quick-result broadcast.
