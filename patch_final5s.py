@@ -413,3 +413,23 @@ if 'addAction("com.example.screener.final5s.QUICK_RESULT")' not in fo:
 if 'quickProbability' not in fo:
     raise SystemExit('FINAL CHECK: quickProbability receiver missing')
 print('CONFIDENCE_FINAL: QUICK_RESULT -> nextConfidence -> overlay; zero frame confidence cannot erase it')
+
+
+# ACTUAL UI RENDERER DIAGNOSTIC
+# The installed APK shows "5S SCANNER", so locate that exact renderer in the
+# extracted source instead of assuming OverlayService.kt is the active UI.
+print('ACTUAL_5S_RENDERER_SCAN_BEGIN')
+for _p in sorted(project.rglob('*.kt')):
+    try:
+        _t = _p.read_text()
+    except Exception:
+        continue
+    if '5S SCANNER' in _t or ('CONFIDENCE:' in _t and 'CANDLES:' in _t and 'RESULT:' in _t):
+        print('ACTUAL_5S_RENDERER_FILE', _p)
+        _ls = _t.splitlines()
+        for _i, _line in enumerate(_ls, 1):
+            if any(_k in _line for _k in ['5S SCANNER', 'CONFIDENCE:', 'CANDLES:', 'STATUS:', 'RESULT:']):
+                print(f'ACTUAL_5S_RENDERER_LINE {_i}: {_line}')
+                for _j in range(max(1, _i-5), min(len(_ls), _i+8)+1):
+                    print(f'ACTUAL_5S_RENDERER_CTX {_j}: {_ls[_j-1]}')
+print('ACTUAL_5S_RENDERER_SCAN_END')
