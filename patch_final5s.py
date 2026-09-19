@@ -247,6 +247,5 @@ for _p in [project / 'app/src/main/java/com/example/screener/MainActivity.kt',
             if any(_k in _line.lower() for _k in ['confidence', 'candles:', 'status:', 'result:', 'quicksignal', 'probability']):
                 print(f'OVERLAY_DIAG {_n}: {_line}')
 
-print('5S_REFERENCE_ASSIGNMENT_COUNT', len(_remaining))
 
 print('5S bucketed reference-price fix added')
