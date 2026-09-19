@@ -154,37 +154,68 @@ print('QUICK_CLOSE_LINES')
 for n, line in enumerate(cap_lines, 1):
     if "quickLastClose" in line or "quickLastSignal" in line:
         print(f'{n}: {line}')
-# Fix 5S reference-price sampling: the old engine overwrote quickLastClose on every frame.
-# Keep ONLY the first close of each 5-second bucket as the reference.
+# Fix 5S reference-price sampling robustly.
+# The old engine overwrote quickLastClose on every frame, so microMove became 0.
+# For each new 5-second bucket, compare the first frame of that bucket against
+# the previous bucket reference, then store the current close for the next bucket.
 c = cap.read_text()
 
 if 'private var quickLastSampleBucket' not in c:
     c = c.replace(
         'private var quickLastClose = Double.NaN',
-        'private var quickLastClose = Double.NaN\n    private var quickLastSampleBucket = -1L',
+        'private var quickLastClose = Double.NaN\\n    private var quickLastSampleBucket = -1L',
         1
     )
 
-# Reset the bucket together with the existing quickLastClose resets.
+# Add the bucket reset next to every quickLastClose reset.
 c = c.replace(
     '        quickLastClose = Double.NaN',
-    '        quickLastClose = Double.NaN\n        quickLastSampleBucket = -1L',
+    '        quickLastClose = Double.NaN\\n        quickLastSampleBucket = -1L',
     2
 )
 
-# Remove EVERY old per-frame overwrite. We will add exactly one guarded assignment below.
-c = re.sub(r'(?m)^[ \\t]*quickLastClose = runningCandle\\.close[ \\t]*\\n', '', c)
+# Remove every old assignment, regardless of CRLF/LF or indentation.
+_lines = c.splitlines()
+_removed = 0
+_kept = []
+for _line in _lines:
+    if _line.strip() == 'quickLastClose = runningCandle.close':
+        _removed += 1
+        continue
+    _kept.append(_line)
+c = '\\n'.join(_kept) + ('\\n' if c.endswith(('\\n', '\\r')) else '')
+print('REMOVED_OLD_QUICK_CLOSE_ASSIGNMENTS', _removed)
 
+# The first frame of a new bucket uses the previous bucket's reference.
+# Then update the reference after the current bucket's analysis has been made.
 marker = '        val microMove = runningCandle.close - quickLastClose'
-replacement = '''        val quickSampleBucket = System.currentTimeMillis() / 5000L
-        if (quickLastClose.isNaN() || quickLastSampleBucket != quickSampleBucket) {
-            quickLastClose = runningCandle.close
-            quickLastSampleBucket = quickSampleBucket
-        }
-        val microMove = runningCandle.close - quickLastClose'''
+replacement_micro = '''        val quickSampleBucket = System.currentTimeMillis() / 5000L
+        val quickReferenceReady =
+            !quickLastClose.isNaN() &&
+            quickLastSampleBucket >= 0L
+        val microMove =
+            if (quickReferenceReady) {
+                runningCandle.close - quickLastClose
+            } else {
+                0.0
+            }'''
 if marker not in c:
     raise SystemExit('microMove marker missing')
-c = c.replace(marker, replacement, 1)
+c = c.replace(marker, replacement_micro, 1)
+
+# Update the reference only after the signal calculation block has run.
+anchor_after_calc = '''        val probability = setupScore.coerceIn(0, 100)'''
+if anchor_after_calc not in c:
+    raise SystemExit('probability anchor missing')
+c = c.replace(
+    anchor_after_calc,
+    anchor_after_calc + '''
+        if (quickLastSampleBucket != quickSampleBucket) {
+            quickLastClose = runningCandle.close
+            quickLastSampleBucket = quickSampleBucket
+        }''',
+    1
+)
 
 # Wire the quick setup score into the generic confidence channel consumed by the overlay.
 if 'putExtra("quickProbability", probability)' not in c:
@@ -199,6 +230,16 @@ if 'putExtra("confidence", probability)' not in c:
     )
 
 cap.write_text(c)
+
+# Verify there are no per-frame quickLastClose overwrites left.
+_final_lines = cap.read_text().splitlines()
+_remaining = [
+    (i, line) for i, line in enumerate(_final_lines, 1)
+    if line.strip() == 'quickLastClose = runningCandle.close'
+]
+print('REMAINING_QUICK_CLOSE_ASSIGNMENTS', _remaining)
+if _remaining:
+    raise SystemExit('quickLastClose per-frame overwrite still present')
 
 # FINAL OVERLAY FIX:
 # Accept the 5S setup score directly from the quick-result broadcast.
