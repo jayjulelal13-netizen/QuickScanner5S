@@ -1,5 +1,5 @@
 name: Build QuickScanner5S FINAL
-# 5S confidence publish rebuild
+# 5S confidence build fix
 
 on:
   workflow_dispatch:
