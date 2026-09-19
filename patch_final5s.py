@@ -372,7 +372,15 @@ val evidenceDirectionScore =
 val probability = maxOf(
     setupScore,
     evidenceBodyScore + evidenceTrendScore + evidenceDirectionScore
-).coerceIn(5, 100)'''
+).coerceIn(5, 100)
+
+        // CONFIDENCE-ONLY: publish the calculated 5S score on every analysis pass.
+        val confidenceIntent = Intent("com.example.screener.final5s.QUICK_CONFIDENCE")
+        confidenceIntent.putExtra("quickProbability", probability)
+        confidenceIntent.putExtra("confidence", probability)
+        confidenceIntent.putExtra("quickSignal", setupDirection)
+        confidenceIntent.putExtra("status", "LIVE_ANALYSIS")
+        sendBroadcast(confidenceIntent)'''
 if confidence_anchor not in cc:
     raise SystemExit('confidence anchor missing')
 cc = cc.replace(confidence_anchor, confidence_replacement, 1)
