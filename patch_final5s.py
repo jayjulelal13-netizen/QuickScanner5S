@@ -129,9 +129,19 @@ for n, line in enumerate(cap_lines, 1):
 # Fix 5S reference-price sampling: keep the close from the START of the current 5-second bucket.
 # The old code overwrote quickLastClose on every capture frame, making microMove ~= 0.
 c = cap.read_text()
-c = c.replace('private var quickLastClose = Double.NaN', 'private var quickLastClose = Double.NaN\\n    private var quickLastSampleBucket = -1L', 1)
-c = c.replace('quickLastClose = Double.NaN', 'quickLastClose = Double.NaN\\n        quickLastSampleBucket = -1L', 1)
-c = c.replace('quickLastClose = Double.NaN', 'quickLastClose = Double.NaN\\n        quickLastSampleBucket = -1L', 1)
+
+if 'private var quickLastSampleBucket' not in c:
+    c = c.replace(
+        'private var quickLastClose = Double.NaN',
+        'private var quickLastClose = Double.NaN\n    private var quickLastSampleBucket = -1L',
+        1
+    )
+
+# Add the reset alongside both existing quickLastClose reset points.
+reset_line = '        quickLastClose = Double.NaN'
+reset_with_bucket = '        quickLastClose = Double.NaN\n        quickLastSampleBucket = -1L'
+c = c.replace(reset_line, reset_with_bucket, 2)
+
 marker = '        val microMove = runningCandle.close - quickLastClose'
 replacement = '''        val quickSampleBucket = System.currentTimeMillis() / 5000L
         if (quickLastClose.isNaN() || quickLastSampleBucket != quickSampleBucket) {
@@ -139,18 +149,18 @@ replacement = '''        val quickSampleBucket = System.currentTimeMillis() / 50
             quickLastSampleBucket = quickSampleBucket
         }
         val microMove = runningCandle.close - quickLastClose'''
-if marker in c:
+if marker in c and 'val quickSampleBucket = System.currentTimeMillis() / 5000L' not in c:
     c = c.replace(marker, replacement, 1)
-else:
+elif 'val quickSampleBucket = System.currentTimeMillis() / 5000L' not in c:
     raise SystemExit('microMove marker missing')
-# Remove the old end-of-frame overwrite; retain the initial guarded assignment.
-needle = '        quickLastClose = runningCandle.close'
-idx = c.find(needle)
-if idx >= 0:
-    idx2 = c.find(needle, idx + len(needle))
-    if idx2 >= 0:
-        c = c[:idx2] + '        // quickLastClose is sampled at the start of each 5-second bucket.' + c[idx2+len(needle):]
-    else:
-        raise SystemExit('second quickLastClose assignment not found')
+
+# Remove the old end-of-frame overwrite, identified by the signal-bucket update.
+old_tail = '''        quickLastClose = runningCandle.close
+        quickLastSignalBucket = nowBucket'''
+new_tail = '''        // quickLastClose is sampled only at the start of each 5-second bucket.
+        quickLastSignalBucket = nowBucket'''
+if old_tail in c:
+    c = c.replace(old_tail, new_tail, 1)
+
 cap.write_text(c)
 print('5S bucketed reference-price fix added')
