@@ -433,3 +433,70 @@ for _p in sorted(project.rglob('*.kt')):
                 for _j in range(max(1, _i-5), min(len(_ls), _i+8)+1):
                     print(f'ACTUAL_5S_RENDERER_CTX {_j}: {_ls[_j-1]}')
 print('ACTUAL_5S_RENDERER_SCAN_END')
+
+
+# CONFIDENCE DISPLAY BRIDGE v2
+# For 5S, the UI must display the real setup score even when the signal is
+# NO TRADE. Previously the renderer zeroed confidence whenever there was no
+# CALL/PUT, which produced the observed CANDLES>0 + CONFIDENCE:0 state.
+
+ov = project / 'app/src/main/java/com/example/screener/OverlayService.kt'
+if not ov.exists():
+    raise SystemExit('OverlayService.kt missing for confidence bridge v2')
+o = ov.read_text()
+
+old_live = '''                        nextConfidence = if (liveSignal == "CALL" || liveSignal == "PUT") {
+                            intent.getIntExtra("probability", intent.getIntExtra("confidence", 0))
+                        } else {
+                            0
+                        }'''
+new_live = '''                        // 5S confidence is the actual setup score, independent of
+                        // whether the current setup has crossed the 90% trade gate.
+                        nextConfidence =
+                            intent.getIntExtra("probability", intent.getIntExtra("confidence", 0))
+                                .coerceIn(0, 100)'''
+if old_live in o:
+    o = o.replace(old_live, new_live, 1)
+
+# In the visible renderer, do not erase a valid 5S score merely because the
+# signal is currently NO TRADE.
+old_zero = '''            confidence = 0
+            trend = nextTrend
+            entry = "WAITING"
+            exit = "WAITING"
+            displayStatus = "NO TRADE"'''
+new_zero = '''            confidence = if (timeframe == "5S") quickProbability else 0
+            trend = nextTrend
+            entry = "WAITING"
+            exit = "WAITING"
+            displayStatus = "NO TRADE"'''
+if old_zero in o:
+    o = o.replace(old_zero, new_zero, 1)
+
+# If a 5S LIVE_ANALYSIS intent arrives, keep the exact probability in the
+# dedicated quick state even for NO TRADE.
+needle = '''                    if (timeframe == "5S") {
+                            quickSignal = liveSignal
+                            quickProbability = nextConfidence'''
+if needle in o:
+    pass
+
+# Also ensure QUICK_5S updates cannot reset a valid score to zero unless the
+# sender explicitly supplies a score.
+o = o.replace(
+'''                    quickProbability =
+                        intent.getIntExtra("quickProbability", 0)''',
+'''                    quickProbability =
+                        intent.getIntExtra("quickProbability", quickProbability).coerceIn(0, 100)''',
+1
+)
+
+ov.write_text(o)
+
+# Verify the critical renderer path exists in the source used for the APK.
+ov_text = ov.read_text()
+if 'confidence = if (timeframe == "5S") quickProbability else 0' not in ov_text:
+    raise SystemExit('CONFIDENCE_BRIDGE_V2: renderer fallback not patched')
+if 'nextConfidence =\n                            intent.getIntExtra("probability"' not in ov_text:
+    raise SystemExit('CONFIDENCE_BRIDGE_V2: LIVE_ANALYSIS score path not patched')
+print('CONFIDENCE_BRIDGE_V2: 5S score survives NO TRADE and reaches visible renderer')
