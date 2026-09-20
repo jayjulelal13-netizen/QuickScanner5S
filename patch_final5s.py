@@ -662,3 +662,49 @@ if ov.exists():
 
 cap.write_text(_v6)
 print('V6: 5-second bucket restored; capture remains 200ms; overlay uses dedicated quick score')
+
+
+# CONFIDENCE EVIDENCE FIX V7
+# Use net movement relative to recent range when candle colors alternate.
+# This is measured evidence; it does not force a 90% trade.
+cap = project / 'app/src/main/java/com/example/screener/CaptureService.kt'
+if not cap.exists():
+    raise SystemExit('CaptureService.kt missing for V7 confidence evidence fix')
+_v7 = cap.read_text()
+
+_old = '''                recent.size >= 3 && bullCount > bearCount && recentMove > 0.0 -> "CALL"
+                recent.size >= 3 && bearCount > bullCount && recentMove < 0.0 -> "PUT"
+                else -> "NONE"'''
+_new = '''                recent.size >= 3 && bullCount > bearCount && recentMove > 0.0 -> "CALL"
+                recent.size >= 3 && bearCount > bullCount && recentMove < 0.0 -> "PUT"
+                recent.size >= 3 && recentMove > 0.0 &&
+                    abs(recentMove) >= rangeSum * 0.10 -> "CALL"
+                recent.size >= 3 && recentMove < 0.0 &&
+                    abs(recentMove) >= rangeSum * 0.10 -> "PUT"
+                else -> "NONE"'''
+if _old in _v7:
+    _v7 = _v7.replace(_old,_new,1)
+elif _new not in _v7:
+    raise SystemExit('V7 recentDirection block not found')
+
+_old2 = '''        val candleDirection =
+            when {
+                microBull -> "CALL"
+                microBear -> "PUT"
+                bodyRatio >= 0.20 && runningCandle.close > runningCandle.open -> "CALL"
+                bodyRatio >= 0.20 && runningCandle.close < runningCandle.open -> "PUT"
+                else -> recentDirection
+            }'''
+_new2 = '''        val candleDirection =
+            when {
+                microBull -> "CALL"
+                microBear -> "PUT"
+                bodyRatio >= 0.20 && runningCandle.close > runningCandle.open -> "CALL"
+                bodyRatio >= 0.20 && runningCandle.close < runningCandle.open -> "PUT"
+                recentDirection == "CALL" || recentDirection == "PUT" -> recentDirection
+                else -> "NONE"
+            }'''
+if _old2 in _v7:
+    _v7=_v7.replace(_old2,_new2,1)
+cap.write_text(_v7)
+print('V7 confidence evidence patch applied')
