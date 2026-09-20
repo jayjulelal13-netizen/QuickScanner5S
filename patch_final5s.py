@@ -1010,3 +1010,64 @@ if 'microThreshold = 0.005' not in _chk:
 if 'probability >= 90' not in _chk:
     raise SystemExit('V10 90% gate missing')
 print('V10 FINAL: 5S measured setup score + 200ms capture + strict 90% trade gate')
+
+
+# V11 OVERLAY ROOT-CAUSE FIX
+# The screenshot proves candle detection is alive (110 candles) and the 5S
+# engine is running, but OverlayService had no QUICK_5S receiver branch.
+# CaptureService was broadcasting quickProbability/confidence, while the
+# overlay ignored that event and kept its old nextConfidence=0.
+ov = project / 'app/src/main/java/com/example/screener/OverlayService.kt'
+if not ov.exists():
+    raise SystemExit('V11 OverlayService missing')
+_s = ov.read_text()
+
+_marker = '                "TRADE_ENTRY" -> {'
+if _marker not in _s:
+    raise SystemExit('V11 TRADE_ENTRY marker missing')
+
+_branch = '''                "QUICK_5S" -> {
+                    val quickSignal =
+                        intent.getStringExtra("quickSignal")?.uppercase(Locale.US)
+                            ?: "NO TRADE"
+                    val quickConfidence =
+                        intent.getIntExtra(
+                            "quickProbability",
+                            intent.getIntExtra("confidence", 0)
+                        )
+                    val quickStatus =
+                        intent.getStringExtra("quickStatus") ?: "WAITING"
+
+                    timeframe = "5S"
+                    nextConfidence = quickConfidence
+                    nextTrend = quickStatus
+
+                    if (
+                        (quickSignal == "CALL" || quickSignal == "PUT") &&
+                        quickConfidence >= CONFIDENCE_LEVEL
+                    ) {
+                        nextSignal = quickSignal
+                        signalLocked = true
+                        status = "SIGNAL LOCKED"
+                    } else {
+                        nextSignal = "NO TRADE"
+                        signalLocked = false
+                        status = "SCANNING"
+                    }
+
+                    updateOverlay()
+                }
+
+'''
+_s = _s.replace(_marker, _branch + _marker, 1)
+
+# Make the overlay show a nonzero measured quick score even when it is below
+# the 90% trade gate. A low score is WAIT, not a forced trade.
+ov.write_text(_s)
+
+_chk = ov.read_text()
+if '"QUICK_5S" -> {' not in _chk:
+    raise SystemExit('V11 QUICK_5S branch missing')
+if 'quickProbability' not in _chk:
+    raise SystemExit('V11 quickProbability bridge missing')
+print('V11 FINAL: OverlayService now consumes QUICK_5S confidence')
