@@ -1,4 +1,7 @@
 name: Build QuickScanner5S FINAL
+
+permissions:
+  contents: write
 # 5S confidence build fix
 
 on:
@@ -35,6 +38,20 @@ jobs:
           rm -rf build_project
           mkdir -p build_project
           unzip -q QuickScanner5S_CANDLE_ENGINE_FINAL.zip -d build_project
+
+      - name: Export source for root-cause fix
+        run: |
+          set -eux
+          rm -rf debug-source
+          mkdir -p debug-source
+          cp -r "$PROJECT_DIR/app/src/main/java/com/example/screener" debug-source/
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add debug-source
+          if ! git diff --cached --quiet; then
+            git commit -m "[skip ci] Export QuickScanner5S source for debugging"
+            git push
+          fi
 
       - name: Find Android project
         run: |
