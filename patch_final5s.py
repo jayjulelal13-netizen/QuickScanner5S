@@ -811,3 +811,20 @@ if 'quickProbability' not in overlay.read_text():
 if 'CONFIDENCE_LEVEL' in main.read_text() and not re.search(r'CONFIDENCE_LEVEL\s*=\s*90', main.read_text()):
     raise SystemExit('V8 MainActivity confidence threshold is not 90')
 print('V8 FULL PIPELINE: CaptureService + CandleAnalyzer + MainActivity + OverlayService')
+
+
+# V10 ROOT-CAUSE DIAGNOSTIC: inspect candle-history mutation and running-candle lifecycle.
+print("V10_CANDLE_HISTORY_DIAG_BEGIN")
+for _p in [project / 'app/src/main/java/com/example/screener/CaptureService.kt',
+           project / 'app/src/main/java/com/example/screener/CandleAnalyzer.kt']:
+    if _p.exists():
+        _ls = _p.read_text().splitlines()
+        print("V10_FILE", _p)
+        for _i, _line in enumerate(_ls, 1):
+            if any(_k in _line for _k in [
+                'candleHistory.add', 'candleHistory =', 'candleHistory.clear',
+                'runningCandle =', 'runningCandle', 'detectedCandles',
+                'analyze', 'candles.add', 'history.add'
+            ]):
+                print(f"V10_LINE {_i}: {_line}")
+print("V10_CANDLE_HISTORY_DIAG_END")
