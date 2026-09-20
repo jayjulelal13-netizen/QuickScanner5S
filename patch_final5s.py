@@ -583,3 +583,82 @@ if _cap2 == _cap:
     raise SystemExit('CAPTURE FIX: FRAME_INTERVAL constant not found')
 cap.write_text(_cap2)
 print('CAPTURE_V5: FRAME_INTERVAL set to 200ms; latest-frame capture retained')
+
+
+# 5S STABLE BUCKET ENGINE V6
+# Keep screen capture fast, but build the QUICK movement from a real 5-second
+# time bucket. The previous patch removed the bucket reference and then used
+# the live candle body on every frame, which can make the displayed direction
+# jump every second. Capture remains at 200ms; QUICK movement is sampled over
+# a 5-second bucket.
+cap = project / 'app/src/main/java/com/example/screener/CaptureService.kt'
+if not cap.exists():
+    raise SystemExit('CaptureService.kt missing for V6 bucket fix')
+_v6 = cap.read_text()
+
+# Restore explicit 5-second bucket state near the existing quick state.
+if 'private var quickLastSampleBucket' not in _v6:
+    anchor = 'private var quickLastClose'
+    pos = _v6.find(anchor)
+    if pos >= 0:
+        line_end = _v6.find('\n', pos)
+        if line_end < 0:
+            line_end = pos
+        insert = '''\n    private var quickLastSampleBucket = -1L
+    private var quickBucketOpen = 0.0
+    private var quickBucketClose = 0.0'''
+        _v6 = _v6[:line_end] + insert + _v6[line_end:]
+
+# Replace the live per-frame movement with a 5-second bucketed movement.
+_v6 = re.sub(
+    r'(?ms)        // QUICK movement is the detected candle body, not a per-frame.*?val microMove = runningCandle\.close - runningCandle\.open',
+    '''        // QUICK movement is sampled over a real 5-second bucket.
+        // Frames may arrive every ~200ms, but the quick candle does not
+        // become a new candle on every frame.
+        val quickBucket = SystemClock.elapsedRealtime() / 5000L
+        if (quickBucket != quickLastSampleBucket) {
+            quickLastSampleBucket = quickBucket
+            quickBucketOpen = runningCandle.close
+            quickBucketClose = runningCandle.close
+        } else {
+            quickBucketClose = runningCandle.close
+        }
+        val microMove = quickBucketClose - quickBucketOpen''',
+    _v6,
+    count=1
+)
+
+# If the old one-line expression is still present, replace it safely.
+_v6 = _v6.replace(
+    'val microMove = runningCandle.close - runningCandle.open',
+    '''val quickBucket = SystemClock.elapsedRealtime() / 5000L
+        if (quickBucket != quickLastSampleBucket) {
+            quickLastSampleBucket = quickBucket
+            quickBucketOpen = runningCandle.close
+            quickBucketClose = runningCandle.close
+        } else {
+            quickBucketClose = runningCandle.close
+        }
+        val microMove = quickBucketClose - quickBucketOpen''',
+    1
+)
+
+# Confidence must always be the same score that the QUICK engine calculated.
+# Do not make the renderer depend on a literal timeframe string.
+ov = project / 'app/src/main/java/com/example/screener/OverlayService.kt'
+if ov.exists():
+    _v6o = ov.read_text()
+    _v6o = _v6o.replace(
+        'confidence = if (timeframe == "5S") quickProbability else 0',
+        'confidence = quickProbability',
+        1
+    )
+    _v6o = _v6o.replace(
+        'val displayConfidence = if (timeframe == "5S" && quickProbability > 0) quickProbability else confidence',
+        'val displayConfidence = if (quickProbability > 0) quickProbability else confidence',
+        1
+    )
+    ov.write_text(_v6o)
+
+cap.write_text(_v6)
+print('V6: 5-second bucket restored; capture remains 200ms; overlay uses dedicated quick score')
