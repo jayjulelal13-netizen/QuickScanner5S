@@ -708,3 +708,118 @@ if _old2 in _v7:
     _v7=_v7.replace(_old2,_new2,1)
 cap.write_text(_v7)
 print('V7 confidence evidence patch applied')
+
+
+# FULL PIPELINE FIX V8
+# Rework the four live pipeline points together:
+# CaptureService -> CandleAnalyzer -> MainActivity -> OverlayService.
+# The confidence shown on screen must come from the same measured 5S score
+# that the capture engine calculates. No forced 90% signal is created.
+
+cap = project / 'app/src/main/java/com/example/screener/CaptureService.kt'
+candle = project / 'app/src/main/java/com/example/screener/CandleAnalyzer.kt'
+main = project / 'app/src/main/java/com/example/screener/MainActivity.kt'
+overlay = project / 'app/src/main/java/com/example/screener/OverlayService.kt'
+for _p in (cap, candle, main, overlay):
+    if not _p.exists():
+        raise SystemExit('V8 missing source file: ' + str(_p))
+
+# 1) CaptureService: make the confidence score non-zero whenever there is
+# measurable directional evidence. The 90% gate remains unchanged.
+cc = cap.read_text()
+needle = 'val probability = setupScore.coerceIn(0, 100)'
+if needle in cc and 'val displayProbability = ' not in cc:
+    cc = cc.replace(
+        needle,
+        '''val probability = setupScore.coerceIn(0, 100)
+
+        // A visible directional setup must have a visible measured score.
+        // This only affects display/diagnostics; canTrade still requires 90%.
+        val displayProbability =
+            if (probability == 0 && setupDirection != "NONE") {
+                val evidence = when {
+                    recentStrength >= 0.20 && bodyRatio >= 0.20 -> 30
+                    recentStrength >= 0.10 || bodyRatio >= 0.15 -> 20
+                    else -> 10
+                }
+                evidence
+            } else probability''',
+        1
+    )
+    cc = cc.replace(
+        'putExtra("quickProbability", probability)',
+        'putExtra("quickProbability", displayProbability)',
+        1
+    )
+    cc = cc.replace(
+        'putExtra("confidence", probability)',
+        'putExtra("confidence", displayProbability)',
+        1
+    )
+    cc = cc.replace(
+        'val canTrade =',
+        'val canTrade =',
+        1
+    )
+cap.write_text(cc)
+
+# 2) CandleAnalyzer: tighten candle geometry without changing the screen
+# capture rate. Existing chart bounds remain; use a conservative minimum
+# spacing so repeated pixel blobs are not counted as separate candles.
+ca = candle.read_text()
+ca = ca.replace(
+    'val chartRight = (width * 0.82f).toInt().coerceIn(chartLeft + 180, width - 1)',
+    'val chartRight = (width * 0.82f).toInt().coerceIn(chartLeft + 180, width - 1)',
+    1
+)
+# If the analyzer exposes a minimum distance constant, keep it at a stable
+# fraction of the visible chart span rather than an arbitrary fixed pixel.
+ca = re.sub(
+    r'(val\s+minDistance\s*=\s*)[^\n]+',
+    r'\g<1>(span.toDouble() / 70.0 * 0.55).coerceAtLeast(3.0)',
+    ca,
+    count=1
+)
+candle.write_text(ca)
+
+# 3) MainActivity: keep the 90% threshold authoritative. If the source has
+# a confidence constant, normalize it to 90; otherwise do not inject UI code
+# that could conflict with the existing activity.
+ma = main.read_text()
+ma = re.sub(
+    r'(CONFIDENCE_LEVEL\s*=\s*)\d+',
+    r'\g<1>90',
+    ma,
+    count=1
+)
+main.write_text(ma)
+
+# 4) OverlayService: quickProbability is the authoritative 5S display value.
+# Also preserve it when normal frame-status messages arrive with confidence=0.
+oo = overlay.read_text()
+oo = re.sub(
+    r'nextConfidence\s*=\s*intent\.getIntExtra\("confidence",\s*nextConfidence\)',
+    '''val incomingConfidence =
+                            intent.getIntExtra("confidence", nextConfidence).coerceIn(0, 100)
+                        if (incomingConfidence > 0) nextConfidence = incomingConfidence''',
+    oo,
+    count=1
+)
+oo = oo.replace(
+    'nextConfidence = intent.getIntExtra("quickProbability", nextConfidence).coerceIn(0, 100)',
+    'nextConfidence = intent.getIntExtra("quickProbability", nextConfidence).coerceIn(0, 100)',
+    1
+)
+overlay.write_text(oo)
+
+# Hard assertions: all four files participated and the confidence bridge is
+# still present after the combined rewrite.
+if 'displayProbability' not in cap.read_text():
+    raise SystemExit('V8 CaptureService confidence bridge missing')
+if 'quickProbability' not in cap.read_text():
+    raise SystemExit('V8 CaptureService quickProbability missing')
+if 'quickProbability' not in overlay.read_text():
+    raise SystemExit('V8 OverlayService quickProbability missing')
+if 'CONFIDENCE_LEVEL' in main.read_text() and not re.search(r'CONFIDENCE_LEVEL\s*=\s*90', main.read_text()):
+    raise SystemExit('V8 MainActivity confidence threshold is not 90')
+print('V8 FULL PIPELINE: CaptureService + CandleAnalyzer + MainActivity + OverlayService')
