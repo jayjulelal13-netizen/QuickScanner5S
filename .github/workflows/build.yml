@@ -39,6 +39,14 @@ jobs:
           mkdir -p build_project
           unzip -q QuickScanner5S_CANDLE_ENGINE_FINAL.zip -d build_project
 
+      - name: Find Android project
+        run: |
+          set -eux
+          PROJECT_DIR=$(find build_project -type f \( -name "settings.gradle.kts" -o -name "settings.gradle" \) -printf '%h\n' | head -n 1)
+          test -n "$PROJECT_DIR"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "PROJECT_DIR=$PROJECT_DIR"
+
       - name: Export source for root-cause fix
         run: |
           set -eux
@@ -52,14 +60,6 @@ jobs:
             git commit -m "[skip ci] Export QuickScanner5S source for debugging"
             git push
           fi
-
-      - name: Find Android project
-        run: |
-          set -eux
-          PROJECT_DIR=$(find build_project -type f \( -name "settings.gradle.kts" -o -name "settings.gradle" \) -printf '%h\n' | head -n 1)
-          test -n "$PROJECT_DIR"
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "PROJECT_DIR=$PROJECT_DIR"
 
       - name: Apply final candle + 5S engine fix
         run: |
