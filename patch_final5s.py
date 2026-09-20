@@ -480,3 +480,78 @@ o = o.replace(
 
 ov.write_text(o)
 print('CONFIDENCE_V3_APPLIED: safe 5S confidence bridge; no brittle assertions')
+
+
+# FINAL RENDERER HARD FIX V4
+# The installed UI visibly says "5S SCANNER" and shows CANDLES>0 + CONFIDENCE:0.
+# Target the actual renderer by locating the Kotlin function that contains the
+# literal "5S SCANNER", then preserve the real quick score in its NO TRADE path.
+ov = project / 'app/src/main/java/com/example/screener/OverlayService.kt'
+if not ov.exists():
+    raise SystemExit('OverlayService.kt missing for renderer hard fix')
+o = ov.read_text()
+
+def _enclosing_function(text, needle_pos):
+    starts = [m.start() for m in re.finditer(r'\b(?:private|public|internal|protected)?\s*fun\s+\w+\s*\(', text[:needle_pos])]
+    if not starts:
+        return None, None
+    start = starts[-1]
+    brace = text.find('{', start)
+    if brace < 0:
+        return None, None
+    depth = 0
+    for i in range(brace, len(text)):
+        if text[i] == '{':
+            depth += 1
+        elif text[i] == '}':
+            depth -= 1
+            if depth == 0:
+                return start, i + 1
+    return None, None
+
+p = o.find('"5S SCANNER"')
+if p < 0:
+    p = o.find('5S SCANNER')
+
+if p >= 0:
+    fs, fe = _enclosing_function(o, p)
+    if fs is not None:
+        fn = o[fs:fe]
+
+        # The visible scanner must show the actual setup score even when the
+        # 90% trade gate rejects the setup.
+        fn = fn.replace(
+            'confidence = 0',
+            'confidence = if (timeframe == "5S") quickProbability else 0'
+        )
+
+        # If the renderer uses a local probability variable, prefer quick state.
+        fn = fn.replace(
+            'val probabilityText = if (confidence > 0) "$confidence%" else "--"',
+            'val displayConfidence = if (timeframe == "5S" && quickProbability > 0) quickProbability else confidence\n        val probabilityText = if (displayConfidence > 0) "$displayConfidence%" else "--"'
+        )
+
+        o = o[:fs] + fn + o[fe:]
+        print('RENDERER_HARD_FIX_V4: patched function containing 5S SCANNER')
+    else:
+        print('RENDERER_HARD_FIX_V4: 5S SCANNER found but enclosing function not located')
+else:
+    print('RENDERER_HARD_FIX_V4: literal 5S SCANNER not found; source may use concatenation')
+
+# Make the LIVE_ANALYSIS score independent of CALL/PUT gating.
+o = re.sub(
+    r'nextConfidence\s*=\s*if\s*\(liveSignal\s*==\s*"CALL"\s*\|\|\s*liveSignal\s*==\s*"PUT"\)\s*\{\s*intent\.getIntExtra\("probability",\s*intent\.getIntExtra\("confidence",\s*0\)\)\s*\}\s*else\s*\{\s*0\s*\}',
+    'nextConfidence = intent.getIntExtra("probability", intent.getIntExtra("confidence", nextConfidence)).coerceIn(0, 100)',
+    o,
+    count=1
+)
+
+# QUICK_5S must not reset an already-known score when the broadcast omits it.
+o = o.replace(
+    'quickProbability = intent.getIntExtra("quickProbability", 0)',
+    'quickProbability = intent.getIntExtra("quickProbability", quickProbability).coerceIn(0, 100)',
+    1
+)
+
+ov.write_text(o)
+print('RENDERER_HARD_FIX_V4_DONE')
