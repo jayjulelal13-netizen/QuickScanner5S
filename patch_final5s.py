@@ -828,3 +828,185 @@ for _p in [project / 'app/src/main/java/com/example/screener/CaptureService.kt',
             ]):
                 print(f"V10_LINE {_i}: {_line}")
 print("V10_CANDLE_HISTORY_DIAG_END")
+
+
+# V10 FINAL 5S ENGINE FIX
+# Root cause found in the actual source: the 5S engine was using the
+# empirical-calibration probability as its displayed confidence. With fewer
+# than 30 real shadow outcomes that value is null, and the old engine therefore
+# displayed 0% indefinitely. 5S confidence must instead be a measured setup
+# score from the current 5-second movement + 1M context. The 90% gate remains
+# strict for an actual demo signal.
+cap = project / 'app/src/main/java/com/example/screener/CaptureService.kt'
+if not cap.exists():
+    raise SystemExit('V10 CaptureService missing')
+_v10 = cap.read_text()
+
+# Ensure QUICK has enough screen samples to see a real 5-second move.
+_v10 = re.sub(
+    r'((?:private\s+)?(?:const\s+)?val\s+FRAME_INTERVAL\s*=\s*)\d+(?:L)?',
+    r'\g<1>200L',
+    _v10,
+    count=1
+)
+
+# Replace the complete measured-confidence section introduced by V9.
+start_marker = '        // 5S confidence is calculated from measurable candle evidence.'
+end_marker = '        val probability = setupScore.coerceIn(0, 100)'
+start = _v10.find(start_marker)
+end = _v10.find(end_marker, start)
+if start < 0 or end < 0:
+    raise SystemExit('V10 measured confidence block not found')
+
+final_block = '''        // 5S confidence is a measured SETUP SCORE.
+        // It is not a guaranteed win probability.
+        val candleRange =
+            (runningCandle.high - runningCandle.low).coerceAtLeast(1.0e-9)
+        val bodyRatio =
+            (abs(runningCandle.close - runningCandle.open) / candleRange)
+                .coerceIn(0.0, 1.0)
+
+        // Recent closed 1M candles provide context only. The immediate 5S
+        // movement remains the primary trigger.
+        val recent = candleHistory.takeLast(6)
+        var bullCount = 0
+        var bearCount = 0
+        var rangeSum = 0.0
+        for (rc in recent) {
+            if (rc.close > rc.open) bullCount++
+            else if (rc.close < rc.open) bearCount++
+            rangeSum += (rc.high - rc.low).coerceAtLeast(1.0e-9)
+        }
+
+        val recentMove =
+            if (recent.size >= 2) recent.last().close - recent.first().open else 0.0
+        val recentStrength =
+            if (rangeSum > 0.0) abs(recentMove) / rangeSum else 0.0
+        val recentDirection =
+            when {
+                recent.size >= 3 && bullCount >= 4 && recentMove > 0.0 -> "CALL"
+                recent.size >= 3 && bearCount >= 4 && recentMove < 0.0 -> "PUT"
+                recent.size >= 3 && recentMove > 0.0 &&
+                    abs(recentMove) >= rangeSum * 0.10 -> "CALL"
+                recent.size >= 3 && recentMove < 0.0 &&
+                    abs(recentMove) >= rangeSum * 0.10 -> "PUT"
+                else -> "NONE"
+            }
+
+        // microStrength is normalized to the visible candle range, so it
+        // works for both sub-1.0 and large-price instruments.
+        val microThreshold = 0.005
+        val microDirection =
+            when {
+                microMove > 0.0 && microStrength >= microThreshold -> "CALL"
+                microMove < 0.0 && microStrength >= microThreshold -> "PUT"
+                else -> "NONE"
+            }
+
+        val bodyDirection =
+            when {
+                bodyRatio >= 0.15 && runningCandle.close > runningCandle.open -> "CALL"
+                bodyRatio >= 0.15 && runningCandle.close < runningCandle.open -> "PUT"
+                else -> "NONE"
+            }
+
+        // Prefer immediate 5S movement. If it is too small, use strong
+        // running-candle direction only as context; never invent a side.
+        val setupDirection =
+            when {
+                microDirection == "CALL" || microDirection == "PUT" -> microDirection
+                bodyDirection == recentDirection &&
+                    bodyDirection != "NONE" -> bodyDirection
+                recentDirection == "CALL" || recentDirection == "PUT" -> recentDirection
+                bodyDirection == "CALL" || bodyDirection == "PUT" -> bodyDirection
+                else -> "NONE"
+            }
+
+        var setupScore =
+            if (setupDirection == "CALL" || setupDirection == "PUT") 15 else 0
+
+        // 1M context agreement.
+        if (setupDirection == baseDirection && setupDirection != "NONE") {
+            setupScore += 25
+        } else if (
+            baseDirection != "CALL" &&
+            baseDirection != "PUT" &&
+            setupDirection != "NONE"
+        ) {
+            setupScore += 10
+        }
+
+        // Immediate 5S movement strength.
+        setupScore += when {
+            microStrength >= 0.30 -> 30
+            microStrength >= 0.20 -> 25
+            microStrength >= 0.12 -> 20
+            microStrength >= 0.08 -> 15
+            microStrength >= 0.04 -> 10
+            microStrength >= 0.01 -> 6
+            microStrength >= 0.005 -> 3
+            else -> 0
+        }
+
+        // Running candle quality.
+        setupScore += when {
+            bodyRatio >= 0.60 -> 12
+            bodyRatio >= 0.40 -> 9
+            bodyRatio >= 0.25 -> 6
+            bodyRatio >= 0.15 -> 3
+            else -> 0
+        }
+
+        // Recent sequence confirmation.
+        if (
+            recentDirection == setupDirection &&
+            setupDirection != "NONE"
+        ) {
+            setupScore += 10
+        }
+        if (recentStrength >= 0.30) setupScore += 5
+        else if (recentStrength >= 0.15) setupScore += 3
+
+        val probability = setupScore.coerceIn(0, 100)
+'''
+_v10 = _v10[:start] + final_block + _v10[end + len(end_marker):]
+
+# The 90% trade gate is strict, but confidence is still shown below 90.
+_v10 = re.sub(
+    r'(?ms)        val canTrade =\s*.*?\n\s*quickSignalDirection == "NONE"',
+    '''        val canTrade =
+            (setupDirection == "CALL" || setupDirection == "PUT") &&
+            probability >= 90 &&
+            !cooldown &&
+            freshSetup &&
+            quickSignalDirection == "NONE"''',
+    _v10,
+    count=1
+)
+
+# The visible quick status must always carry the measured setup score.
+_v10 = _v10.replace(
+    'putExtra("quickProbability", probability)',
+    'putExtra("quickProbability", probability)\n            putExtra("confidence", probability)',
+    1
+)
+
+# Avoid calling a null empirical calibration "0%". It is no longer used for
+# the displayed confidence; the current setup score is authoritative.
+_v10 = _v10.replace(
+    'if (probability == null)\n                    "WAIT - 5S SETUP"',
+    'if (probability < 90)\n                    "WAIT - 90% SETUP"',
+    1
+)
+
+cap.write_text(_v10)
+
+# Final assertions.
+_chk = cap.read_text()
+if 'val probability = setupScore.coerceIn(0, 100)' not in _chk:
+    raise SystemExit('V10 setup score missing')
+if 'microThreshold = 0.005' not in _chk:
+    raise SystemExit('V10 micro threshold missing')
+if 'probability >= 90' not in _chk:
+    raise SystemExit('V10 90% gate missing')
+print('V10 FINAL: 5S measured setup score + 200ms capture + strict 90% trade gate')
