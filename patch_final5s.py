@@ -1071,3 +1071,57 @@ if '"QUICK_5S" -> {' not in _chk:
 if 'quickProbability' not in _chk:
     raise SystemExit('V11 quickProbability bridge missing')
 print('V11 FINAL: OverlayService now consumes QUICK_5S confidence')
+
+
+# V11 ROOT CAUSE: OverlayService was ignoring the QUICK_5S broadcast.
+# CaptureService was calculating/sending quickProbability, but OverlayService
+# had no QUICK_5S case, so nextConfidence stayed at its reset value 0%.
+ov = project / 'app/src/main/java/com/example/screener/OverlayService.kt'
+if not ov.exists():
+    raise SystemExit('V11 OverlayService missing')
+_v11 = ov.read_text()
+
+needle = '''                "ANALYSIS_READY" -> {'''
+case = '''                "QUICK_5S" -> {
+                    val quickSignalValue =
+                        intent.getStringExtra("quickSignal")
+                            ?.uppercase(Locale.US) ?: "NO TRADE"
+                    val quickConfidence =
+                        intent.getIntExtra(
+                            "quickProbability",
+                            intent.getIntExtra("confidence", nextConfidence)
+                        ).coerceIn(0, 100)
+
+                    timeframe = "5S"
+                    nextConfidence = quickConfidence
+                    nextTrend =
+                        if (quickSignalValue == "CALL") "CALL"
+                        else if (quickSignalValue == "PUT") "PUT"
+                        else "WAITING"
+
+                    if (
+                        (quickSignalValue == "CALL" || quickSignalValue == "PUT") &&
+                        quickConfidence >= CONFIDENCE_LEVEL
+                    ) {
+                        nextSignal = quickSignalValue
+                        signalLocked = true
+                        status = "SIGNAL LOCKED"
+                    } else {
+                        nextSignal = "NO TRADE"
+                        signalLocked = false
+                        status = "SCANNING"
+                    }
+                    updateOverlay()
+                }
+
+'''
+if needle not in _v11:
+    raise SystemExit('V11 QUICK_5S insertion point missing')
+if '"QUICK_5S" -> {' not in _v11:
+    _v11 = _v11.replace(needle, case + needle, 1)
+
+ov.write_text(_v11)
+
+if '"QUICK_5S" -> {' not in ov.read_text():
+    raise SystemExit('V11 QUICK_5S case missing')
+print('V11 FINAL: OverlayService now consumes QUICK_5S quickProbability/confidence')
