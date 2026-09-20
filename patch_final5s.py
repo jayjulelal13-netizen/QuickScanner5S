@@ -1201,3 +1201,88 @@ overlay.write_text(_o)
 if '"QUICK_5S" -> {' not in overlay.read_text():
     raise SystemExit('V11 QUICK_5S handler missing')
 print('V11 FINAL: bridge QUICK_5S quickProbability -> overlay confidence')
+
+
+# V12: do not wait for the 5-second bucket rollover to publish confidence.
+# The screenshot shows the scanner can detect >100 candles but confidence remains
+# 0 while the current candle is visibly moving. The previous quick engine returned
+# immediately during the active bucket, so the UI had no fresh measured score.
+cap = project / 'app/src/main/java/com/example/screener/CaptureService.kt'
+if not cap.exists():
+    raise SystemExit('V12 CaptureService missing')
+_v12 = cap.read_text()
+
+old = '''        if (nowBucket == quickBucketId) {
+            // Keep the first observed close of the current 5-second bucket.
+            // This gives us a real 5-second delta when the bucket changes.
+            return
+        }'''
+new = '''        if (nowBucket == quickBucketId) {
+            // Publish a LIVE measured setup score on every captured frame.
+            // Do not wait for the bucket rollover: that made the overlay look
+            // permanently stuck at 0% during an active 5-second interval.
+            val liveMove = runningCandle.close - quickLastClose
+            val liveRange =
+                (runningCandle.high - runningCandle.low).coerceAtLeast(1.0e-9)
+            val liveStrength = abs(liveMove) / liveRange
+            val liveBody =
+                abs(runningCandle.close - runningCandle.open) / liveRange
+
+            val liveDirection =
+                when {
+                    liveMove > 0.0 && liveStrength >= 0.005 -> "CALL"
+                    liveMove < 0.0 && liveStrength >= 0.005 -> "PUT"
+                    runningCandle.close > runningCandle.open && liveBody >= 0.15 -> "CALL"
+                    runningCandle.close < runningCandle.open && liveBody >= 0.15 -> "PUT"
+                    else -> "NO TRADE"
+                }
+
+            var liveScore =
+                if (liveDirection == "CALL" || liveDirection == "PUT") 15 else 0
+
+            liveScore += when {
+                liveStrength >= 0.30 -> 45
+                liveStrength >= 0.20 -> 38
+                liveStrength >= 0.12 -> 30
+                liveStrength >= 0.08 -> 22
+                liveStrength >= 0.04 -> 15
+                liveStrength >= 0.01 -> 8
+                liveStrength >= 0.005 -> 4
+                else -> 0
+            }
+
+            liveScore += when {
+                liveBody >= 0.60 -> 25
+                liveBody >= 0.40 -> 20
+                liveBody >= 0.25 -> 14
+                liveBody >= 0.15 -> 8
+                else -> 0
+            }
+
+            // Strong current-candle evidence is enough to display a measured
+            // score, but the existing 90% gate remains the only live-trade gate.
+            val liveProbability = liveScore.coerceIn(0, 100)
+            sendQuickStatus(
+                liveDirection,
+                liveProbability,
+                quickHistoricalSampleCount(liveDirection),
+                if (liveProbability >= 90) "5S STRONG SETUP"
+                else "WAIT - 90% GATE"
+            )
+            return
+        }'''
+if old not in _v12:
+    raise SystemExit('V12 active-bucket block not found')
+_v12 = _v12.replace(old, new, 1)
+
+# Ensure QUICK broadcasts always expose the confidence key too.
+_v12 = _v12.replace(
+    'putExtra("quickProbability", probability)\n            putExtra("quickSamples"',
+    'putExtra("quickProbability", probability)\n            putExtra("confidence", probability)\n            putExtra("quickSamples"',
+    1
+)
+
+cap.write_text(_v12)
+if 'Publish a LIVE measured setup score on every captured frame.' not in cap.read_text():
+    raise SystemExit('V12 live score patch missing')
+print('V12 FINAL: live 5S confidence during active bucket')
