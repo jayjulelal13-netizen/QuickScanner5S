@@ -1125,3 +1125,79 @@ ov.write_text(_v11)
 if '"QUICK_5S" -> {' not in ov.read_text():
     raise SystemExit('V11 QUICK_5S case missing')
 print('V11 FINAL: OverlayService now consumes QUICK_5S quickProbability/confidence')
+
+
+# V11 FINAL OVERLAY BRIDGE FIX
+# Root cause from the live V10 screenshot/source:
+# CaptureService sends status=QUICK_5S with quickProbability, but OverlayService
+# had no QUICK_5S branch. Therefore the engine could calculate a score while the
+# overlay stayed at its initial 0%. Bridge the actual quick result directly.
+overlay = project / 'app/src/main/java/com/example/screener/OverlayService.kt'
+if not overlay.exists():
+    raise SystemExit('V11 OverlayService missing')
+_o = overlay.read_text()
+
+needle = '''                "ANALYSIS_READY" -> {'''
+quick_case = '''                "QUICK_5S" -> {
+                    val quickSignal =
+                        intent.getStringExtra("quickSignal")
+                            ?.uppercase(Locale.US) ?: "NO TRADE"
+                    val quickConfidence =
+                        intent.getIntExtra(
+                            "quickProbability",
+                            intent.getIntExtra("confidence", 0)
+                        ).coerceIn(0, 100)
+
+                    nextConfidence = quickConfidence
+                    nextSignal =
+                        if (
+                            (quickSignal == "CALL" || quickSignal == "PUT") &&
+                            quickConfidence >= CONFIDENCE_LEVEL
+                        ) quickSignal else "NO TRADE"
+
+                    nextTrend =
+                        intent.getStringExtra("quickStatus")
+                            ?: nextTrend
+
+                    signalLocked =
+                        nextSignal == "CALL" || nextSignal == "PUT"
+
+                    status =
+                        if (signalLocked) "SIGNAL LOCKED" else "WAITING"
+
+                    candleCount =
+                        intent.getIntExtra("count", candleCount)
+
+                    updateOverlay()
+                }
+
+'''
+if '            "QUICK_5S" -> {' not in _o:
+    if needle not in _o:
+        raise SystemExit('V11 Overlay insertion point missing')
+    _o = _o.replace(needle, quick_case + needle, 1)
+
+# Also keep quick confidence during generic scanning statuses; do not overwrite
+# a valid quick score with a normal-engine zero.
+old = '''                    if (intent.getStringExtra("status") == "LIVE_ANALYSIS" &&
+                        !activeTrade && !signalLocked
+                    ) {
+                        nextConfidence = intent.getIntExtra("confidence", nextConfidence)
+                        nextTrend = intent.getStringExtra("trend") ?: nextTrend
+                    }'''
+new = '''                    if (intent.getStringExtra("status") == "LIVE_ANALYSIS" &&
+                        !activeTrade && !signalLocked
+                    ) {
+                        val c = intent.getIntExtra("confidence", nextConfidence)
+                        if (c > 0 || nextConfidence == 0) {
+                            nextConfidence = c
+                        }
+                        nextTrend = intent.getStringExtra("trend") ?: nextTrend
+                    }'''
+_o = _o.replace(old, new, 1)
+
+overlay.write_text(_o)
+
+if '"QUICK_5S" -> {' not in overlay.read_text():
+    raise SystemExit('V11 QUICK_5S handler missing')
+print('V11 FINAL: bridge QUICK_5S quickProbability -> overlay confidence')
