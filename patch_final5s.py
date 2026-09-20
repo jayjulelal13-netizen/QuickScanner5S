@@ -729,33 +729,21 @@ for _p in (cap, candle, main, overlay):
 cc = cap.read_text()
 needle = 'val probability = setupScore.coerceIn(0, 100)'
 if needle in cc and 'val displayProbability = ' not in cc:
-    cc = cc.replace(
-        needle,
-        '''val probability = setupScore.coerceIn(0, 100)
-
-        // A visible directional setup must have a visible measured score.
-        // This only affects display/diagnostics; canTrade still requires 90%.
-        val displayProbability =
-            if (probability == 0 && setupDirection != "NONE") {
-                val evidence = when {
-                    recentStrength >= 0.20 && bodyRatio >= 0.20 -> 30
-                    recentStrength >= 0.10 || bodyRatio >= 0.15 -> 20
-                    else -> 10
-                }
-                evidence
-            } else probability''',
-        1
-    )
+    # Keep the overlay tied to the actual measured setup score.
+    # Do not manufacture a fallback 10/20/30 display value.
+    if needle not in cc:
+        raise SystemExit('V8 probability line missing')
     cc = cc.replace(
         'putExtra("quickProbability", probability)',
-        'putExtra("quickProbability", displayProbability)',
+        'putExtra("quickProbability", probability)',
         1
     )
-    cc = cc.replace(
-        'putExtra("confidence", probability)',
-        'putExtra("confidence", displayProbability)',
-        1
-    )
+    if 'putExtra("confidence", probability)' not in cc:
+        cc = cc.replace(
+            'putExtra("quickProbability", probability)',
+            'putExtra("quickProbability", probability)\n            putExtra("confidence", probability)',
+            1
+        )
     cc = cc.replace(
         'val canTrade =',
         'val canTrade =',
@@ -814,8 +802,8 @@ overlay.write_text(oo)
 
 # Hard assertions: all four files participated and the confidence bridge is
 # still present after the combined rewrite.
-if 'displayProbability' not in cap.read_text():
-    raise SystemExit('V8 CaptureService confidence bridge missing')
+if 'val probability = setupScore.coerceIn(0, 100)' not in cap.read_text():
+    raise SystemExit('V8 CaptureService measured probability missing')
 if 'quickProbability' not in cap.read_text():
     raise SystemExit('V8 CaptureService quickProbability missing')
 if 'quickProbability' not in overlay.read_text():
