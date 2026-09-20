@@ -555,3 +555,31 @@ o = o.replace(
 
 ov.write_text(o)
 print('RENDERER_HARD_FIX_V4_DONE')
+
+
+# CAPTURE DROP FIX V5
+# Screen capture was throttled to roughly one processed frame per second.
+# For 5S QUICK this is too sparse: use the latest ImageReader frame at a
+# controlled 200 ms interval (5 processed frames/sec). acquireLatestImage()
+# still prevents an old queue from building up.
+cap = project / 'app/src/main/java/com/example/screener/CaptureService.kt'
+if not cap.exists():
+    raise SystemExit('CaptureService.kt missing for capture fix')
+_cap = cap.read_text()
+_cap2 = re.sub(
+    r'((?:private\s+)?(?:const\s+)?val\s+FRAME_INTERVAL\s*=\s*)\d+(?:L)?',
+    r'\g<1>200L',
+    _cap,
+    count=1
+)
+if _cap2 == _cap:
+    _cap2 = re.sub(
+        r'(FRAME_INTERVAL\s*=\s*)\d+(?:L)?',
+        r'\g<1>200L',
+        _cap,
+        count=1
+    )
+if _cap2 == _cap:
+    raise SystemExit('CAPTURE FIX: FRAME_INTERVAL constant not found')
+cap.write_text(_cap2)
+print('CAPTURE_V5: FRAME_INTERVAL set to 200ms; latest-frame capture retained')
