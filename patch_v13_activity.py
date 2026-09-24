@@ -244,6 +244,6 @@ if "fun quickActivityScore(" not in analyzer.read_text():
     raise SystemExit("V15 analyzer helper missing")
 if "CandleAnalyzer.quickActivityScore(" not in cap.read_text():
     raise SystemExit("V15 capture -> analyzer bridge missing")
-if "V15 quick activity update failed" not in cap.read_text():
+if "updateQuick5s(currentRunningCandle)" not in cap.read_text():
     raise SystemExit("V15 per-frame quick call missing")
 print("V15 FINAL: per-frame 5S activity -> CandleAnalyzer -> confidence")
