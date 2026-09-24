@@ -1301,3 +1301,125 @@ if 'Publish a LIVE measured setup score on every captured frame.' not in cap.rea
 print('V12 FINAL: live 5S confidence during active bucket')
 
 
+
+
+# V13 ROOT FIX: LIVE 5S ACTIVITY WAS NEVER FED EVERY CAPTURE FRAME.
+# The previous V12 live score used quickLastClose, but the earlier cleanup
+# intentionally removed per-frame quickLastClose assignments. That made
+# liveMove become NaN -> score 0. Also updateQuick5s was only called from
+# rebuildHistory(), which can be skipped when the visible candle signature
+# does not change. Fix both issues without changing the candle detector.
+cap = project / 'app/src/main/java/com/example/screener/CaptureService.kt'
+if not cap.exists():
+    raise SystemExit('V13 CaptureService missing')
+v13 = cap.read_text()
+
+# 1) Use a real 5-second bucket-open reference for live movement.
+v13 = v13.replace(
+    'val liveMove = runningCandle.close - quickLastClose',
+    'val liveMove = runningCandle.close - quickBucketOpen',
+    1
+)
+
+# 2) Initialize the bucket-open price on the first bucket.
+old_first = '''        if (quickBucketId < 0L) {
+            quickBucketId = nowBucket
+            quickLastClose = runningCandle.close
+            return
+        }'''
+new_first = '''        if (quickBucketId < 0L) {
+            quickBucketId = nowBucket
+            quickBucketOpen = runningCandle.close
+            quickBucketClose = runningCandle.close
+            quickLastClose = runningCandle.close
+            return
+        }'''
+if old_first in v13:
+    v13 = v13.replace(old_first, new_first, 1)
+elif 'quickBucketId = nowBucket' not in v13:
+    raise SystemExit('V13 first quick bucket block missing')
+
+# 3) At every new 5-second bucket, establish a fresh open reference before
+# the engine evaluates the new bucket.
+old_bucket = '''        quickBucketId = nowBucket
+
+        // 5S QUICK must be able to START calibration'''
+new_bucket = '''        quickBucketId = nowBucket
+        quickBucketOpen = runningCandle.close
+        quickBucketClose = runningCandle.close
+        quickLastClose = runningCandle.close
+
+        // 5S QUICK must be able to START calibration'''
+if old_bucket in v13:
+    v13 = v13.replace(old_bucket, new_bucket, 1)
+
+# 4) Call the quick engine on EVERY processed frame while quickMode is active.
+# This is deliberately outside the visible-signature/history-change gate.
+anchor = '''        previousRunningCandle =
+            currentRunningCandle
+
+        previousRunningCandleSignature =
+            createCandleSignature(
+                currentRunningCandle
+            )
+
+        /*
+         * Safety:
+         * never evaluate the current running candle.
+         */'''
+inject = '''        previousRunningCandle =
+            currentRunningCandle
+
+        previousRunningCandleSignature =
+            createCandleSignature(
+                currentRunningCandle
+            )
+
+        // QUICK 5S is an intrabar activity engine. It must receive every
+        // processed screen frame, even when the detected candle list/signature
+        // has not changed. The normal candle engine remains untouched.
+        if (quickMode) {
+            try {
+                updateQuick5s(currentRunningCandle)
+            } catch (e: Exception) {
+                Log.e(TAG, "V13 quick activity update error", e)
+            }
+        }
+
+        /*
+         * Safety:
+         * never evaluate the current running candle.
+         */'''
+if anchor not in v13:
+    raise SystemExit('V13 per-frame insertion anchor missing')
+# Avoid duplicate insertion if this patch is accidentally re-applied.
+if 'V13 quick activity update error' not in v13:
+    v13 = v13.replace(anchor, inject, 1)
+
+# 5) Do not let the live score use NaN/Infinity.
+v13 = v13.replace(
+    'val liveStrength = abs(liveMove) / liveRange',
+    'val liveStrength = if (liveMove.isFinite()) abs(liveMove) / liveRange else 0.0',
+    1
+)
+v13 = v13.replace(
+    'val liveBody =\n                abs(runningCandle.close - runningCandle.open) / liveRange',
+    'val liveBody = if (runningCandle.close.isFinite() && runningCandle.open.isFinite())\n                abs(runningCandle.close - runningCandle.open) / liveRange else 0.0',
+    1
+)
+
+cap.write_text(v13)
+
+# V13 verification assertions.
+chk = cap.read_text()
+for needle in [
+    'val liveMove = runningCandle.close - quickBucketOpen',
+    'quickBucketOpen = runningCandle.close',
+    'V13 quick activity update error',
+    'val liveProbability = liveScore.coerceIn(0, 100)'
+]:
+    if needle not in chk:
+        raise SystemExit('V13 VERIFY FAIL: ' + needle)
+if 'val liveMove = runningCandle.close - quickLastClose' in chk:
+    raise SystemExit('V13 VERIFY FAIL: stale quickLastClose live movement remains')
+print('V13 VERIFIED SOURCE: live 5S activity is fed every processed frame and uses bucket-open price')
