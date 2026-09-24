@@ -1237,8 +1237,20 @@ new = '''        if (nowBucket == quickBucketId) {
                     else -> "NO TRADE"
                 }
 
+            // V13: score must be capable of reaching 90 when the evidence
+            // is genuinely strong. V12 could only reach 85 by construction.
+            val recentForQuick = candleHistory.takeLast(6)
+            val recentBull = recentForQuick.count { it.close > it.open }
+            val recentBear = recentForQuick.count { it.close < it.open }
+            val recentAgreement =
+                when (liveDirection) {
+                    "CALL" -> recentBull >= 4
+                    "PUT" -> recentBear >= 4
+                    else -> false
+                }
+
             var liveScore =
-                if (liveDirection == "CALL" || liveDirection == "PUT") 15 else 0
+                if (liveDirection == "CALL" || liveDirection == "PUT") 20 else 0
 
             liveScore += when {
                 liveStrength >= 0.30 -> 45
@@ -1259,8 +1271,9 @@ new = '''        if (nowBucket == quickBucketId) {
                 else -> 0
             }
 
-            // Strong current-candle evidence is enough to display a measured
-            // score, but the existing 90% gate remains the only live-trade gate.
+            if (recentAgreement) liveScore += 10
+
+            // 90% remains a strict gate. No artificial confidence is added.
             val liveProbability = liveScore.coerceIn(0, 100)
             sendQuickStatus(
                 liveDirection,
