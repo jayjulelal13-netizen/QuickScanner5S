@@ -1,3 +1,1 @@
-# STABLE FINAL 5S BUILD
-# restored known-green patch + conservative candle grouping
-V13 activity confidence fix 1790247298599
+V13 verified source fix - live 5S activity every frame - 2026-09-24 22:15
