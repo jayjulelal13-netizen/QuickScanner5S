@@ -1,1 +1,1 @@
-V13 verified source fix - live 5S activity every frame - 2026-09-24 22:15
+V14 confidence + CandleAnalyzer live activity fix - 2026-09-25 00:20
