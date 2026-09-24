@@ -104,3 +104,146 @@ if "Confidence:" not in main.read_text():
     raise SystemExit("V13 MainActivity label fix missing")
 
 print("V13: per-frame 5S activity feed + CandleAnalyzer activity metric + MainActivity confidence label")
+
+
+# V15 FINAL: CandleAnalyzer owns the live 5S activity score.
+# The score is setup quality (0..100), not guaranteed win probability.
+cap = Path(os.environ["PROJECT_DIR"]) / "app/src/main/java/com/example/screener/CaptureService.kt"
+analyzer = Path(os.environ["PROJECT_DIR"]) / "app/src/main/java/com/example/screener/CandleAnalyzer.kt"
+
+a = analyzer.read_text()
+helper = r'''
+    fun quickActivityScore(
+        history: List<DetectedCandle>,
+        running: DetectedCandle,
+        bucketOpen: Double
+    ): Pair<String, Int> {
+        val range = (running.high - running.low).coerceAtLeast(1.0e-9)
+        val move = running.close - bucketOpen
+        val bodyRatio =
+            (abs(running.close - running.open) / range).coerceIn(0.0, 1.0)
+        val moveRatio =
+            (abs(move) / range).coerceIn(0.0, 1.0)
+
+        val direction = when {
+            move > 0.0 -> "CALL"
+            move < 0.0 -> "PUT"
+            running.close > running.open -> "CALL"
+            running.close < running.open -> "PUT"
+            else -> "NO TRADE"
+        }
+        if (direction == "NO TRADE") return Pair(direction, 0)
+
+        val recent = history.takeLast(6)
+        if (recent.size < 3) return Pair(direction, 0)
+
+        val bull = recent.count { it.close > it.open }
+        val bear = recent.count { it.close < it.open }
+        val agreement = if (direction == "CALL") bull else bear
+        val recentRange = recent.sumOf {
+            (it.high - it.low).coerceAtLeast(0.0)
+        }.coerceAtLeast(1.0e-9)
+        val recentMove = recent.last().close - recent.first().open
+        val recentStrength = abs(recentMove) / recentRange
+        val recentAgrees =
+            if (direction == "CALL") recentMove > 0.0 else recentMove < 0.0
+
+        var score = 0
+        score += when {
+            moveRatio >= 0.60 -> 40
+            moveRatio >= 0.40 -> 34
+            moveRatio >= 0.25 -> 26
+            moveRatio >= 0.15 -> 18
+            moveRatio >= 0.08 -> 10
+            else -> 0
+        }
+        score += when {
+            bodyRatio >= 0.70 -> 25
+            bodyRatio >= 0.55 -> 20
+            bodyRatio >= 0.40 -> 14
+            bodyRatio >= 0.25 -> 8
+            else -> 0
+        }
+        score += when {
+            agreement >= 5 -> 20
+            agreement >= 4 -> 15
+            agreement >= 3 -> 8
+            else -> 0
+        }
+        if (recentAgrees) score += 8
+        if (recentStrength >= 0.20) score += 7
+        else if (recentStrength >= 0.12) score += 4
+
+        return Pair(direction, score.coerceIn(0, 100))
+    }
+'''
+if "fun quickActivityScore(" not in a:
+    pos = a.rfind("\n}")
+    if pos < 0:
+        raise SystemExit("V15 CandleAnalyzer closing brace missing")
+    a = a[:pos] + "\n" + helper + a[pos:]
+    analyzer.write_text(a)
+
+s = cap.read_text()
+start = s.find("private fun updateQuick5s")
+if start < 0:
+    raise SystemExit("V15 updateQuick5s missing")
+part = s[start:]
+marker = "val liveProbability = liveScore.coerceIn(0, 100)"
+if marker in part:
+    repl = '''val analyzerQuick =
+                CandleAnalyzer.quickActivityScore(
+                    candleHistory,
+                    runningCandle,
+                    quickLastClose
+                )
+            val liveDirectionFromAnalyzer = analyzerQuick.first
+            val liveProbability = analyzerQuick.second.coerceIn(0, 100)'''
+    part = part.replace(marker, repl, 1)
+    part = part.replace(
+        '''                liveDirection,
+                liveProbability,''',
+        '''                liveDirectionFromAnalyzer,
+                liveProbability,''',
+        1
+    )
+    s = s[:start] + part
+
+# The quick engine must run on every accepted capture frame.
+needle = '''        val currentRunningCandle =
+            detected.last()
+
+        val nowMillis ='''
+insert = '''        val currentRunningCandle =
+            detected.last()
+
+        if (quickMode) {
+            try {
+                updateQuick5s(currentRunningCandle)
+            } catch (e: Exception) {
+                Log.e(TAG, "V15 quick activity update failed", e)
+            }
+        }
+
+        val nowMillis ='''
+if needle in s and "V15 quick activity update failed" not in s:
+    s = s.replace(needle, insert, 1)
+
+# Remove the old history-only quick call to avoid double processing.
+old_call = '''        if (quickMode) {
+            try {
+                updateQuick5s(detected.last())
+            } catch (e: Exception) {
+                Log.e(TAG, "Legacy quick engine error", e)
+            }
+        }'''
+s = s.replace(old_call, "", 1)
+cap.write_text(s)
+
+if "fun quickActivityScore(" not in analyzer.read_text():
+    raise SystemExit("V15 analyzer helper missing")
+if "CandleAnalyzer.quickActivityScore(" not in cap.read_text():
+    raise SystemExit("V15 capture -> analyzer bridge missing")
+if "V15 quick activity update failed" not in cap.read_text():
+    raise SystemExit("V15 per-frame quick call missing")
+print("V15 FINAL: per-frame 5S activity -> CandleAnalyzer -> confidence")
