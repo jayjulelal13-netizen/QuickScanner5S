@@ -1423,3 +1423,210 @@ for needle in [
 if 'val liveMove = runningCandle.close - quickLastClose' in chk:
     raise SystemExit('V13 VERIFY FAIL: stale quickLastClose live movement remains')
 print('V13 VERIFIED SOURCE: live 5S activity is fed every processed frame and uses bucket-open price')
+
+
+
+# V14 ROOT FIX: replace the old empirical-calibration quick engine with a
+# live measured activity score. Confidence is calculated from the detected
+# running candle + CandleAnalyzer trend/recent sequence on EVERY 200ms frame.
+# Historical calibration must never keep the visible confidence at 0%.
+# The 90% threshold remains a strict gate for an actual demo signal.
+cap = project / 'app/src/main/java/com/example/screener/CaptureService.kt'
+if not cap.exists():
+    raise SystemExit('V14 CaptureService missing')
+v14 = cap.read_text()
+
+v14_quick = r'''    private fun updateQuick5s(
+        runningCandle: CandleAnalyzer.DetectedCandle
+    ) {
+        val nowBucket = SystemClock.elapsedRealtime() / QUICK_BUCKET_MS
+
+        if (quickBucketId < 0L) {
+            quickBucketId = nowBucket
+            quickBucketOpen = runningCandle.close
+            quickBucketClose = runningCandle.close
+            quickLastClose = runningCandle.close
+            sendQuickStatus("NO TRADE", 0, 0, "5S WARMING")
+            return
+        }
+
+        if (nowBucket != quickBucketId) {
+            quickBucketId = nowBucket
+            quickBucketOpen = runningCandle.close
+            quickBucketClose = runningCandle.close
+            quickLastClose = runningCandle.close
+        } else {
+            quickBucketClose = runningCandle.close
+        }
+
+        val liveRange =
+            (runningCandle.high - runningCandle.low)
+                .coerceAtLeast(1.0e-9)
+        val liveMove = runningCandle.close - quickBucketOpen
+        val liveStrength =
+            if (liveMove.isFinite()) abs(liveMove) / liveRange else 0.0
+        val liveBody =
+            if (
+                runningCandle.close.isFinite() &&
+                runningCandle.open.isFinite()
+            ) {
+                abs(runningCandle.close - runningCandle.open) / liveRange
+            } else {
+                0.0
+            }
+
+        val microDirection =
+            when {
+                liveMove > 0.0 && liveStrength >= 0.005 -> "CALL"
+                liveMove < 0.0 && liveStrength >= 0.005 -> "PUT"
+                runningCandle.close > runningCandle.open &&
+                    liveBody >= 0.15 -> "CALL"
+                runningCandle.close < runningCandle.open &&
+                    liveBody >= 0.15 -> "PUT"
+                else -> "NO TRADE"
+            }
+
+        // CandleAnalyzer provides higher-timeframe confluence.
+        val base =
+            if (candleHistory.size >= 5) {
+                try {
+                    CandleAnalyzer.analyzeHistory(
+                        candleHistory.takeLast(MAX_HISTORY),
+                        "1M"
+                    )
+                } catch (_: Exception) {
+                    null
+                }
+            } else {
+                null
+            }
+
+        val baseDirection =
+            base?.signal?.uppercase(Locale.US) ?: "NO TRADE"
+
+        // Exclude the currently running candle from recent sequence scoring.
+        val recent =
+            if (candleHistory.size > 1) {
+                candleHistory.dropLast(1).takeLast(6)
+            } else {
+                emptyList()
+            }
+
+        val bullCount = recent.count { it.close > it.open }
+        val bearCount = recent.count { it.close < it.open }
+        val recentDirection =
+            when {
+                bullCount >= 4 -> "CALL"
+                bearCount >= 4 -> "PUT"
+                else -> "NO TRADE"
+            }
+
+        var score = 0
+
+        if (microDirection == "CALL" || microDirection == "PUT") {
+            score += 15
+        }
+
+        score += when {
+            liveStrength >= 0.30 -> 35
+            liveStrength >= 0.20 -> 30
+            liveStrength >= 0.12 -> 24
+            liveStrength >= 0.08 -> 18
+            liveStrength >= 0.04 -> 12
+            liveStrength >= 0.02 -> 7
+            liveStrength >= 0.005 -> 3
+            else -> 0
+        }
+
+        score += when {
+            liveBody >= 0.60 -> 20
+            liveBody >= 0.40 -> 16
+            liveBody >= 0.25 -> 12
+            liveBody >= 0.15 -> 7
+            else -> 0
+        }
+
+        if (
+            microDirection != "NO TRADE" &&
+            baseDirection == microDirection
+        ) {
+            score += 20
+        }
+
+        if (
+            microDirection != "NO TRADE" &&
+            recentDirection == microDirection
+        ) {
+            score += 10
+        }
+
+        val probability = score.coerceIn(0, 100)
+        val strong =
+            (microDirection == "CALL" || microDirection == "PUT") &&
+            probability >= MIN_CONFIDENCE_TO_QUEUE
+
+        if (strong && quickSignalDirection == "NONE") {
+            quickSignal = microDirection
+            quickSignalDirection = microDirection
+            quickSignalEntry = runningCandle.close
+            quickActiveUntilBucket = nowBucket + 1L
+            quickLastSignalBucket = nowBucket
+
+            sendQuickStatus(
+                microDirection,
+                probability,
+                0,
+                "5S STRONG SETUP"
+            )
+        } else {
+            sendQuickStatus(
+                "NO TRADE",
+                probability,
+                0,
+                if (probability >= MIN_CONFIDENCE_TO_QUEUE) {
+                    "5S STRONG SETUP"
+                } else {
+                    "WAIT - 90% GATE"
+                }
+            )
+        }
+    }
+
+'''
+marker='    private fun quickHistoricalProbability'
+start=v14.find('    private fun updateQuick5s(')
+end=v14.find(marker,start)
+if start<0 or end<0:
+    raise SystemExit('V14 quick function markers missing')
+v14=v14[:start]+v14_quick+v14[end:]
+
+# Keep the live engine on every processed frame.
+if 'V13 quick activity update error' not in v14:
+    anchor='''        previousRunningCandleSignature =
+            createCandleSignature(
+                currentRunningCandle
+            )
+'''
+    inject=anchor+''' 
+        if (quickMode) {
+            try {
+                updateQuick5s(currentRunningCandle)
+            } catch (e: Exception) {
+                Log.e(TAG, "V14 quick activity update error", e)
+            }
+        }
+'''
+    if anchor in v14:
+        v14=v14.replace(anchor,inject,1)
+
+cap.write_text(v14)
+chk=cap.read_text()
+for needle in [
+    'CandleAnalyzer.analyzeHistory',
+    'WAIT - 90% GATE',
+    'probability >= MIN_CONFIDENCE_TO_QUEUE',
+    'V14 quick activity update error'
+]:
+    if needle not in chk:
+        raise SystemExit('V14 VERIFY FAIL: '+needle)
+print('V14 VERIFIED: live CandleAnalyzer + 5S activity confidence')
