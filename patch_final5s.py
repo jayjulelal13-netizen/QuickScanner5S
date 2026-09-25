@@ -1674,3 +1674,282 @@ chk = cap.read_text()
 if 'V15 quick activity frame error' not in chk:
     raise SystemExit('V15 VERIFY FAIL: per-frame quick activity call missing')
 print('V15 VERIFIED: quick activity receives every same-candle capture frame')
+
+
+# V16 ROOT FIX: use CandleAnalyzer trend + real intrabar body/frame activity
+# The earlier quick engine could still report 0 because it required
+# CandleAnalyzer.signal == CALL/PUT. CandleAnalyzer intentionally returns
+# NO TRADE for many valid trends, so the 5S score had no higher-timeframe
+# confirmation and could not reach the 90 gate. V16 uses analyzer TREND as
+# confluence and also samples the detected running candle body/frame movement.
+cap = project / 'app/src/main/java/com/example/screener/CaptureService.kt'
+if not cap.exists():
+    raise SystemExit('V16 CaptureService missing')
+v16 = cap.read_text()
+
+# Add a true previous-frame reference for the live activity calculation.
+if 'private var quickPrevFrameClose' not in v16:
+    v16 = v16.replace(
+        'private var quickLastClose = Double.NaN',
+        '''private var quickLastClose = Double.NaN
+    private var quickPrevFrameClose = Double.NaN''',
+        1
+    )
+
+# Reset it whenever the quick engine is reset.
+v16 = v16.replace(
+    'quickLastClose = Double.NaN',
+    'quickLastClose = Double.NaN\n        quickPrevFrameClose = Double.NaN',
+)
+# Avoid duplicate reset lines from repeated application.
+v16 = v16.replace(
+    'quickPrevFrameClose = Double.NaN\n        quickPrevFrameClose = Double.NaN',
+    'quickPrevFrameClose = Double.NaN'
+)
+
+v16_quick = r'''    private fun updateQuick5s(
+        runningCandle: CandleAnalyzer.DetectedCandle
+    ) {
+        val nowBucket = SystemClock.elapsedRealtime() / QUICK_BUCKET_MS
+
+        if (quickBucketId < 0L) {
+            quickBucketId = nowBucket
+            quickBucketOpen = runningCandle.close
+            quickBucketClose = runningCandle.close
+            quickPrevFrameClose = runningCandle.close
+            sendQuickStatus("NO TRADE", 0, 0, "5S WARMING")
+            return
+        }
+
+        val bucketChanged = nowBucket != quickBucketId
+        if (bucketChanged) {
+            quickBucketId = nowBucket
+            quickBucketOpen = runningCandle.close
+            quickBucketClose = runningCandle.close
+            quickPrevFrameClose = runningCandle.close
+        }
+
+        val liveRange =
+            (runningCandle.high - runningCandle.low)
+                .coerceAtLeast(1.0e-9)
+
+        val frameMove =
+            if (
+                !bucketChanged &&
+                quickPrevFrameClose.isFinite() &&
+                runningCandle.close.isFinite()
+            ) {
+                runningCandle.close - quickPrevFrameClose
+            } else {
+                0.0
+            }
+
+        val bucketMove =
+            if (runningCandle.close.isFinite() && quickBucketOpen.isFinite()) {
+                runningCandle.close - quickBucketOpen
+            } else {
+                0.0
+            }
+
+        quickPrevFrameClose = runningCandle.close
+        quickBucketClose = runningCandle.close
+
+        val moveForDirection =
+            when {
+                abs(bucketMove) >= abs(frameMove) -> bucketMove
+                else -> frameMove
+            }
+
+        val moveStrength =
+            (abs(bucketMove) / liveRange).coerceIn(0.0, 1.0)
+
+        val frameStrength =
+            (abs(frameMove) / liveRange).coerceIn(0.0, 1.0)
+
+        val bodyRatio =
+            if (
+                runningCandle.close.isFinite() &&
+                runningCandle.open.isFinite()
+            ) {
+                (abs(runningCandle.close - runningCandle.open) / liveRange)
+                    .coerceIn(0.0, 1.0)
+            } else {
+                0.0
+            }
+
+        // Direction comes from the actual running candle and immediate
+        // frame movement, not from an empirical probability table.
+        var microDirection =
+            when {
+                moveForDirection > 0.0 -> "CALL"
+                moveForDirection < 0.0 -> "PUT"
+                runningCandle.close > runningCandle.open -> "CALL"
+                runningCandle.close < runningCandle.open -> "PUT"
+                else -> "NO TRADE"
+            }
+
+        // Exclude the running candle from completed-candle sequence analysis.
+        val recent =
+            if (candleHistory.size > 1) {
+                candleHistory.dropLast(1).takeLast(6)
+            } else {
+                emptyList()
+            }
+
+        val bullCount = recent.count { it.close > it.open }
+        val bearCount = recent.count { it.close < it.open }
+        val recentMove =
+            if (recent.size >= 2) {
+                recent.last().close - recent.first().open
+            } else {
+                0.0
+            }
+
+        val recentRange =
+            recent.sumOf {
+                (it.high - it.low).coerceAtLeast(1.0e-9)
+            }
+
+        val recentStrength =
+            if (recentRange > 0.0) {
+                (abs(recentMove) / recentRange).coerceIn(0.0, 1.0)
+            } else {
+                0.0
+            }
+
+        val recentDirection =
+            when {
+                bullCount >= 4 && recentMove > 0.0 -> "CALL"
+                bearCount >= 4 && recentMove < 0.0 -> "PUT"
+                else -> "NO TRADE"
+            }
+
+        if (
+            microDirection == "NO TRADE" &&
+            (recentDirection == "CALL" || recentDirection == "PUT")
+        ) {
+            microDirection = recentDirection
+        }
+
+        // CandleAnalyzer is used as confluence. Use TREND here rather than
+        // SIGNAL: SIGNAL is deliberately conservative and may be NO TRADE
+        // even while the underlying completed candles have a clear trend.
+        val base =
+            if (candleHistory.size >= 5) {
+                try {
+                    CandleAnalyzer.analyzeHistory(
+                        candleHistory.takeLast(MAX_HISTORY),
+                        "1M"
+                    )
+                } catch (_: Exception) {
+                    null
+                }
+            } else {
+                null
+            }
+
+        val trendText =
+            base?.trend?.uppercase(Locale.US) ?: ""
+
+        val analyzerDirection =
+            when {
+                trendText.contains("BULLISH") -> "CALL"
+                trendText.contains("BEARISH") -> "PUT"
+                else -> "NO TRADE"
+            }
+
+        var score =
+            if (microDirection == "CALL" || microDirection == "PUT") 20 else 0
+
+        score += when {
+            moveStrength >= 0.30 -> 25
+            moveStrength >= 0.20 -> 21
+            moveStrength >= 0.12 -> 17
+            moveStrength >= 0.08 -> 13
+            moveStrength >= 0.04 -> 9
+            moveStrength >= 0.02 -> 5
+            moveStrength >= 0.005 -> 2
+            else -> 0
+        }
+
+        // Immediate frame activity is a secondary confirmation, not the
+        // entire signal, so a static frame cannot create a fake 90%.
+        score += when {
+            frameStrength >= 0.12 -> 8
+            frameStrength >= 0.06 -> 6
+            frameStrength >= 0.02 -> 4
+            frameStrength > 0.0 -> 2
+            else -> 0
+        }
+
+        score += when {
+            bodyRatio >= 0.60 -> 20
+            bodyRatio >= 0.40 -> 17
+            bodyRatio >= 0.25 -> 13
+            bodyRatio >= 0.15 -> 8
+            bodyRatio >= 0.08 -> 4
+            else -> 0
+        }
+
+        if (
+            analyzerDirection != "NO TRADE" &&
+            analyzerDirection == microDirection
+        ) {
+            score += 15
+        }
+
+        if (
+            recentDirection != "NO TRADE" &&
+            recentDirection == microDirection
+        ) {
+            score += 12
+        }
+
+        if (recentStrength >= 0.25) score += 5
+        else if (recentStrength >= 0.12) score += 3
+
+        val probability = score.coerceIn(0, 100)
+
+        val strong =
+            (microDirection == "CALL" || microDirection == "PUT") &&
+            probability >= MIN_CONFIDENCE_TO_QUEUE
+
+        if (strong && quickSignalDirection == "NONE") {
+            quickSignal = microDirection
+            quickSignalDirection = microDirection
+            quickSignalEntry = runningCandle.close
+            quickActiveUntilBucket = nowBucket + 1L
+            quickLastSignalBucket = nowBucket
+        }
+
+        val visibleSignal =
+            if (strong) microDirection else "NO TRADE"
+
+        sendQuickStatus(
+            visibleSignal,
+            probability,
+            0,
+            if (strong) "5S STRONG SETUP" else "WAIT - 90% GATE"
+        )
+    }
+
+'''
+start=v16.find('    private fun updateQuick5s(')
+end=v16.find('    private fun quickHistoricalProbability',start)
+if start<0 or end<0:
+    raise SystemExit('V16 quick function markers missing')
+v16=v16[:start]+v16_quick+v16[end:]
+
+cap.write_text(v16)
+
+chk=cap.read_text()
+for needle in [
+    'private var quickPrevFrameClose',
+    'trendText.contains("BULLISH")',
+    'trendText.contains("BEARISH")',
+    'val probability = score.coerceIn(0, 100)',
+    'sendQuickStatus('
+]:
+    if needle not in chk:
+        raise SystemExit('V16 VERIFY FAIL: '+needle)
+print('V16 VERIFIED: 5S activity + CandleAnalyzer TREND confluence + live confidence')
