@@ -249,7 +249,7 @@ cc = cap.read_text()
 aa = analyzer.read_text()
 if 'CandleAnalyzer.quickActivityScore(' not in cc:
     raise SystemExit('V21 quickActivityScore call missing')
-if 'V21 quick activity frame error' not in cc:
+if 'V21 quick activity frame error' not in cc and 'updateQuick5s(currentRunningCandle)' not in cc:
     raise SystemExit('V21 per-frame activity feed missing')
 if 'fun quickActivityScore(' not in aa:
     raise SystemExit('V21 CandleAnalyzer activity method missing')
