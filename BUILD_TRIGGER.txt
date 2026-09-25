@@ -1,1 +1,1 @@
-V15 FINAL BUILD 2 - clean V13 + CandleAnalyzer live 5S confidence - 2026-09-25 11:05 IST
+CandleAnalyzer 5S live activity confidence fix - 2026-09-25T05:39:56.643Z
