@@ -282,12 +282,10 @@ if "fun recentActivityDirection(" not in a:
     }
 
 '''
-    idx = a.rfind("
-}")
+    idx = a.rfind("\n}")
     if idx < 0:
         raise SystemExit("V23: CandleAnalyzer class end missing")
-    a = a[:idx] + "
-" + helper + a[idx:]
+    a = a[:idx] + "\n" + helper + a[idx:]
     ca.write_text(a)
 
 # Compile-time/source sanity.
