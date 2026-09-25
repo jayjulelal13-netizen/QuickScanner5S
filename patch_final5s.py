@@ -2239,3 +2239,306 @@ for needle in [
         raise SystemExit('V18 VERIFY FAIL: ' + needle)
 
 print('V18 VERIFIED: 5S QUICK is default and live confidence remains a strict measured 90% gate')
+
+
+# V19 FINAL ROOT FIX
+# Confidence must come from the actual detected running candle + CandleAnalyzer
+# activity, not from historical calibration. Historical samples remain useful
+# for statistics but must never block the visible live confidence.
+cap = project / 'app/src/main/java/com/example/screener/CaptureService.kt'
+if not cap.exists():
+    raise SystemExit('V19 CaptureService missing')
+
+v19 = cap.read_text()
+
+v19_quick = r'''    private fun updateQuick5s(
+        runningCandle: CandleAnalyzer.DetectedCandle
+    ) {
+        val nowBucket = SystemClock.elapsedRealtime() / QUICK_BUCKET_MS
+
+        if (quickBucketId < 0L) {
+            quickBucketId = nowBucket
+            quickBucketOpen = runningCandle.close
+            quickBucketClose = runningCandle.close
+            quickPrevFrameClose = runningCandle.close
+            sendQuickStatus("NO TRADE", 0, 0, "5S WARMING")
+            return
+        }
+
+        val bucketChanged = nowBucket != quickBucketId
+        if (bucketChanged) {
+            quickBucketId = nowBucket
+            quickBucketOpen = runningCandle.close
+            quickBucketClose = runningCandle.close
+            quickPrevFrameClose = runningCandle.close
+        }
+
+        val range = (runningCandle.high - runningCandle.low)
+            .coerceAtLeast(1.0e-9)
+
+        val frameMove =
+            if (!bucketChanged &&
+                quickPrevFrameClose.isFinite() &&
+                runningCandle.close.isFinite()
+            ) {
+                runningCandle.close - quickPrevFrameClose
+            } else 0.0
+
+        val bucketMove =
+            if (quickBucketOpen.isFinite() && runningCandle.close.isFinite()) {
+                runningCandle.close - quickBucketOpen
+            } else 0.0
+
+        quickPrevFrameClose = runningCandle.close
+        quickBucketClose = runningCandle.close
+
+        val bodyMove = runningCandle.close - runningCandle.open
+        val bodyRatio = if (bodyMove.isFinite()) {
+            (abs(bodyMove) / range).coerceIn(0.0, 1.0)
+        } else 0.0
+
+        val bucketStrength =
+            (abs(bucketMove) / range).coerceIn(0.0, 1.0)
+        val frameStrength =
+            (abs(frameMove) / range).coerceIn(0.0, 1.0)
+
+        val recent = if (candleHistory.size > 1) {
+            candleHistory.dropLast(1).takeLast(8)
+        } else {
+            emptyList()
+        }
+
+        val bull = recent.count { it.close > it.open }
+        val bear = recent.count { it.close < it.open }
+        val recentMove = if (recent.size >= 2) {
+            recent.last().close - recent.first().open
+        } else 0.0
+        val recentRange = recent.sumOf {
+            (it.high - it.low).coerceAtLeast(1.0e-9)
+        }
+        val recentStrength = if (recentRange > 0.0) {
+            (abs(recentMove) / recentRange).coerceIn(0.0, 1.0)
+        } else 0.0
+
+        val recentDirection = when {
+            bull >= 3 && recentMove > 0.0 -> "CALL"
+            bear >= 3 && recentMove < 0.0 -> "PUT"
+            else -> "NO TRADE"
+        }
+
+        val base = if (candleHistory.size >= 5) {
+            try {
+                CandleAnalyzer.analyzeHistory(
+                    candleHistory.takeLast(MAX_HISTORY),
+                    "1M"
+                )
+            } catch (_: Exception) {
+                null
+            }
+        } else null
+
+        val trend = base?.trend?.uppercase(Locale.US) ?: ""
+        val analyzerDirection = when {
+            trend.contains("BULLISH") ||
+                (base?.bullishScore ?: 0) >= (base?.bearishScore ?: 0) + 8 -> "CALL"
+            trend.contains("BEARISH") ||
+                (base?.bearishScore ?: 0) >= (base?.bullishScore ?: 0) + 8 -> "PUT"
+            else -> "NO TRADE"
+        }
+
+        val direction = when {
+            bucketMove > 0.0 -> "CALL"
+            bucketMove < 0.0 -> "PUT"
+            frameMove > 0.0 -> "CALL"
+            frameMove < 0.0 -> "PUT"
+            bodyMove > 0.0 -> "CALL"
+            bodyMove < 0.0 -> "PUT"
+            recentDirection != "NO TRADE" -> recentDirection
+            analyzerDirection != "NO TRADE" -> analyzerDirection
+            else -> "NO TRADE"
+        }
+
+        var score = 0
+
+        // Actual live direction evidence.
+        if (direction == "CALL" || direction == "PUT") score += 15
+
+        score += when {
+            bucketStrength >= 0.30 -> 30
+            bucketStrength >= 0.20 -> 26
+            bucketStrength >= 0.12 -> 22
+            bucketStrength >= 0.08 -> 17
+            bucketStrength >= 0.04 -> 12
+            bucketStrength >= 0.02 -> 7
+            bucketStrength > 0.0 -> 3
+            else -> 0
+        }
+
+        score += when {
+            frameStrength >= 0.12 -> 8
+            frameStrength >= 0.06 -> 6
+            frameStrength >= 0.02 -> 4
+            frameStrength > 0.0 -> 2
+            else -> 0
+        }
+
+        score += when {
+            bodyRatio >= 0.60 -> 20
+            bodyRatio >= 0.40 -> 17
+            bodyRatio >= 0.25 -> 13
+            bodyRatio >= 0.15 -> 8
+            bodyRatio >= 0.08 -> 4
+            else -> 0
+        }
+
+        if (direction != "NO TRADE" &&
+            analyzerDirection == direction
+        ) {
+            score += 15
+        }
+
+        if (direction != "NO TRADE" &&
+            recentDirection == direction
+        ) {
+            score += 10
+        }
+
+        score += when {
+            recentStrength >= 0.25 -> 5
+            recentStrength >= 0.12 -> 3
+            else -> 0
+        }
+
+        // Analyzer score is a real measured confluence input, not a fake seed.
+        val analyzerGap = abs(
+            (base?.bullishScore ?: 0) - (base?.bearishScore ?: 0)
+        )
+        if (analyzerGap >= 20) score += 5
+        else if (analyzerGap >= 10) score += 3
+
+        val confidence = score.coerceIn(0, 100)
+        val strong =
+            (direction == "CALL" || direction == "PUT") &&
+            analyzerDirection == direction &&
+            confidence >= 90
+
+        if (strong && quickSignalDirection == "NONE") {
+            quickSignal = direction
+            quickSignalDirection = direction
+            quickSignalEntry = runningCandle.close
+            quickActiveUntilBucket = nowBucket + 1L
+            quickLastSignalBucket = nowBucket
+        }
+
+        sendQuickStatus(
+            if (strong) direction else "NO TRADE",
+            confidence,
+            quickHistoricalSampleCount(direction),
+            if (strong) "5S STRONG SETUP" else "WAIT - 90% GATE"
+        )
+    }
+
+'''
+start=v19.find('    private fun updateQuick5s(')
+end=v19.find('    private fun quickHistoricalProbability', start)
+if start < 0 or end < 0:
+    raise SystemExit('V19 quick function markers missing')
+v19 = v19[:start] + v19_quick + v19[end:]
+
+# V19: guarantee the quick engine is fed on every processed capture frame.
+if 'V19 quick activity frame error' not in v19:
+    anchor = '''        previousRunningCandle =
+            currentRunningCandle
+
+        previousRunningCandleSignature =
+            createCandleSignature(
+                currentRunningCandle
+            )
+'''
+    inject = anchor + '''
+        if (quickMode) {
+            try {
+                updateQuick5s(currentRunningCandle)
+            } catch (e: Exception) {
+                Log.e(TAG, "V19 quick activity frame error", e)
+            }
+        }
+'''
+    if anchor in v19:
+        v19 = v19.replace(anchor, inject, 1)
+
+cap.write_text(v19)
+
+# V19 overlay bridge: QUICK_5S must be handled before generic frame statuses,
+# and a generic confidence=0 frame must never erase a live measured score.
+ov = project / 'app/src/main/java/com/example/screener/OverlayService.kt'
+if not ov.exists():
+    raise SystemExit('V19 OverlayService missing')
+o19 = ov.read_text()
+
+if 'V19 quick status handler' not in o19:
+    marker = '''            timeframe = intent.getStringExtra("timeframe") ?: timeframe
+
+            if (intent.hasExtra("count")) {'''
+    handler = '''            timeframe = intent.getStringExtra("timeframe") ?: timeframe
+
+            // V19 quick status is the authoritative live 5S confidence.
+            // It is published on every capture frame and may be below 90;
+            // below 90 is WAIT, while 90+ is eligible for a signal.
+            if (intent.getStringExtra("status") == "QUICK_5S" &&
+                !activeTrade && !signalLocked
+            ) {
+                nextConfidence =
+                    intent.getIntExtra("quickProbability", nextConfidence)
+                        .coerceIn(0, 100)
+                val quickSignal =
+                    intent.getStringExtra("quickSignal")
+                        ?.uppercase(Locale.US) ?: "NO TRADE"
+                nextSignal =
+                    if (quickSignal == "CALL" || quickSignal == "PUT") {
+                        quickSignal
+                    } else {
+                        "NO TRADE"
+                    }
+                nextTrend = "5S LIVE"
+                status =
+                    if (nextConfidence >= CONFIDENCE_LEVEL &&
+                        nextSignal != "NO TRADE"
+                    ) "SIGNAL READY" else "WAITING"
+                updateOverlay()
+                return
+            }
+
+            if (intent.hasExtra("count")) {'''
+    if marker in o19:
+        o19 = o19.replace(marker, handler, 1)
+
+# Prevent normal LIVE_ANALYSIS confidence=0 from clearing a non-zero quick score.
+o19 = o19.replace(
+'''                        nextConfidence = intent.getIntExtra("confidence", nextConfidence)
+                        nextTrend = intent.getStringExtra("trend") ?: nextTrend''',
+'''                        val genericConfidence =
+                            intent.getIntExtra("confidence", nextConfidence).coerceIn(0, 100)
+                        if (genericConfidence > 0 || nextConfidence == 0) {
+                            nextConfidence = genericConfidence
+                        }
+                        nextTrend = intent.getStringExtra("trend") ?: nextTrend''',
+1
+)
+
+ov.write_text(o19)
+
+# Final source checks.
+cap_check = cap.read_text()
+ov_check = ov.read_text()
+for needle in [
+    'val confidence = score.coerceIn(0, 100)',
+    'confidence >= 90',
+    'V19 quick activity frame error',
+    'CandleAnalyzer.analyzeHistory'
+]:
+    if needle not in cap_check:
+        raise SystemExit('V19 VERIFY FAIL CaptureService: ' + needle)
+if 'V19 quick status handler' not in ov_check:
+    raise SystemExit('V19 VERIFY FAIL OverlayService handler')
+print('V19 FINAL: live activity + CandleAnalyzer confluence + 90% gate + overlay bridge')
