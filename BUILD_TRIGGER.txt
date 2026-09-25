@@ -1,1 +1,1 @@
-V14 confidence + CandleAnalyzer live activity fix - 2026-09-25 00:20
+V15 LIVE 5S CandleAnalyzer confidence fix - 2026-09-25 09:50
