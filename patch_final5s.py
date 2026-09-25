@@ -2730,3 +2730,335 @@ for f, needles in [
         if n not in txt:
             raise SystemExit('V21 VERIFY FAIL: '+n)
 print('V21 VERIFIED: CandleAnalyzer majority confluence + live confidence + 90% gate')
+
+
+# V22 FINAL USER FIX
+# User requirement: 5S QUICK confidence must be driven by CandleAnalyzer/activity
+# on every detected frame. Keep the strict 90% gate (previously 85%).
+# Do not alter candle detection itself and do not use historical samples to
+# block visible live confidence.
+
+cap = project / 'app/src/main/java/com/example/screener/CaptureService.kt'
+main = project / 'app/src/main/java/com/example/screener/MainActivity.kt'
+overlay = project / 'app/src/main/java/com/example/screener/OverlayService.kt'
+
+if not cap.exists():
+    raise SystemExit('V22 CaptureService missing')
+
+c = cap.read_text()
+
+# Faster frame sampling is required for 5-second activity.
+c = c.replace('private const val FRAME_INTERVAL = 1000L',
+              'private const val FRAME_INTERVAL = 200L', 1)
+
+# Ensure the live quick analyzer is called immediately after a valid detected
+# running candle is obtained, before normal 1M lifecycle guards.
+anchor = '''        val currentRunningCandle =
+            detected.last()
+'''
+driver = '''        val currentRunningCandle =
+            detected.last()
+
+        // V22: feed CandleAnalyzer/5S activity on every detected frame.
+        if (quickMode) {
+            try {
+                updateQuick5s(currentRunningCandle)
+            } catch (e: Exception) {
+                Log.e(TAG, "V22 quick activity error", e)
+            }
+        }
+'''
+if 'V22 quick activity error' not in c:
+    if anchor not in c:
+        raise SystemExit('V22 running-candle anchor missing')
+    c = c.replace(anchor, driver, 1)
+
+# Remove duplicate V19/V20 live drivers if present, keeping only V22.
+for old in [
+'''        if (quickMode) {
+            try {
+                updateQuick5s(currentRunningCandle)
+            } catch (e: Exception) {
+                Log.e(TAG, "V20 quick activity frame error", e)
+            }
+        }
+
+''',
+'''        if (quickMode) {
+            try {
+                updateQuick5s(currentRunningCandle)
+            } catch (e: Exception) {
+                Log.e(TAG, "V19 quick activity frame error", e)
+            }
+        }
+
+'''
+]:
+    c = c.replace(old, '')
+
+# Replace the quick engine with a compact activity + CandleAnalyzer confluence
+# calculation. Confidence is measured, not a random/fallback value.
+start = c.find('    private fun updateQuick5s(')
+end = c.find('    private fun quickHistoricalProbability', start)
+if start < 0 or end < 0:
+    raise SystemExit('V22 quick function markers missing')
+
+quick = r'''    private fun updateQuick5s(
+        runningCandle: CandleAnalyzer.DetectedCandle
+    ) {
+        val nowBucket = SystemClock.elapsedRealtime() / QUICK_BUCKET_MS
+
+        if (quickBucketId < 0L) {
+            quickBucketId = nowBucket
+            quickBucketOpen = runningCandle.close
+            quickBucketClose = runningCandle.close
+            quickPrevFrameClose = runningCandle.close
+            sendQuickStatus("NO TRADE", 0, 0, "5S WARMING")
+            return
+        }
+
+        val bucketChanged = nowBucket != quickBucketId
+        if (bucketChanged) {
+            quickBucketId = nowBucket
+            quickBucketOpen = runningCandle.close
+            quickBucketClose = runningCandle.close
+            quickPrevFrameClose = runningCandle.close
+        }
+
+        val range = (runningCandle.high - runningCandle.low)
+            .coerceAtLeast(1.0e-9)
+
+        val frameMove = if (
+            !bucketChanged &&
+            quickPrevFrameClose.isFinite() &&
+            runningCandle.close.isFinite()
+        ) runningCandle.close - quickPrevFrameClose else 0.0
+
+        val bucketMove =
+            if (quickBucketOpen.isFinite() && runningCandle.close.isFinite())
+                runningCandle.close - quickBucketOpen
+            else 0.0
+
+        quickPrevFrameClose = runningCandle.close
+        quickBucketClose = runningCandle.close
+
+        val bodyMove = runningCandle.close - runningCandle.open
+        val bodyRatio = (abs(bodyMove) / range).coerceIn(0.0, 1.0)
+        val bucketStrength = (abs(bucketMove) / range).coerceIn(0.0, 1.0)
+        val frameStrength = (abs(frameMove) / range).coerceIn(0.0, 1.0)
+
+        val completed = if (candleHistory.size > 1)
+            candleHistory.dropLast(1).takeLast(8)
+        else emptyList()
+
+        val bulls = completed.count { it.close > it.open }
+        val bears = completed.count { it.close < it.open }
+        val recentMove = if (completed.size >= 2)
+            completed.last().close - completed.first().open
+        else 0.0
+        val recentRange = completed.sumOf {
+            (it.high - it.low).coerceAtLeast(1.0e-9)
+        }
+        val recentStrength =
+            if (recentRange > 0.0)
+                (abs(recentMove) / recentRange).coerceIn(0.0, 1.0)
+            else 0.0
+
+        val recentDirection = when {
+            bulls >= 3 && recentMove > 0.0 -> "CALL"
+            bears >= 3 && recentMove < 0.0 -> "PUT"
+            else -> "NO TRADE"
+        }
+
+        val analysis = if (candleHistory.size >= 5) {
+            try {
+                CandleAnalyzer.analyzeHistory(
+                    candleHistory.takeLast(MAX_HISTORY),
+                    "1M"
+                )
+            } catch (_: Exception) {
+                null
+            }
+        } else null
+
+        val majority =
+            if (completed.size >= 4)
+                CandleAnalyzer.recentMajorityDirection(completed)
+            else "NONE"
+
+        val analyzerDirection = when {
+            analysis != null &&
+                (
+                    analysis.trend.uppercase(Locale.US).contains("BULLISH") ||
+                    analysis.bullishScore >= analysis.bearishScore + 8
+                ) -> "CALL"
+            analysis != null &&
+                (
+                    analysis.trend.uppercase(Locale.US).contains("BEARISH") ||
+                    analysis.bearishScore >= analysis.bullishScore + 8
+                ) -> "PUT"
+            majority == "CALL" || majority == "PUT" -> majority
+            else -> "NO TRADE"
+        }
+
+        val direction = when {
+            bucketMove > 0.0 -> "CALL"
+            bucketMove < 0.0 -> "PUT"
+            frameMove > 0.0 -> "CALL"
+            frameMove < 0.0 -> "PUT"
+            bodyMove > 0.0 -> "CALL"
+            bodyMove < 0.0 -> "PUT"
+            recentDirection != "NO TRADE" -> recentDirection
+            analyzerDirection != "NO TRADE" -> analyzerDirection
+            else -> "NO TRADE"
+        }
+
+        var score = 0
+
+        // Direction exists = measurable activity.
+        if (direction == "CALL" || direction == "PUT") score += 15
+
+        score += when {
+            bucketStrength >= 0.30 -> 30
+            bucketStrength >= 0.20 -> 26
+            bucketStrength >= 0.12 -> 22
+            bucketStrength >= 0.08 -> 17
+            bucketStrength >= 0.04 -> 12
+            bucketStrength >= 0.02 -> 7
+            bucketStrength > 0.0 -> 3
+            else -> 0
+        }
+
+        score += when {
+            frameStrength >= 0.12 -> 8
+            frameStrength >= 0.06 -> 6
+            frameStrength >= 0.02 -> 4
+            frameStrength > 0.0 -> 2
+            else -> 0
+        }
+
+        score += when {
+            bodyRatio >= 0.60 -> 20
+            bodyRatio >= 0.40 -> 17
+            bodyRatio >= 0.25 -> 13
+            bodyRatio >= 0.15 -> 8
+            bodyRatio >= 0.08 -> 4
+            else -> 0
+        }
+
+        if (direction != "NO TRADE" && analyzerDirection == direction) score += 15
+        if (direction != "NO TRADE" && recentDirection == direction) score += 10
+
+        score += when {
+            recentStrength >= 0.25 -> 5
+            recentStrength >= 0.12 -> 3
+            else -> 0
+        }
+
+        val analyzerGap = abs(
+            (analysis?.bullishScore ?: 0) - (analysis?.bearishScore ?: 0)
+        )
+        if (analyzerGap >= 20) score += 5
+        else if (analyzerGap >= 10) score += 3
+
+        val confidence = score.coerceIn(0, 100)
+
+        // 90% is the actual signal gate. Below 90 = WAIT/NO TRADE.
+        val confluence =
+            analyzerDirection == direction || recentDirection == direction
+
+        val strong =
+            (direction == "CALL" || direction == "PUT") &&
+            confluence &&
+            confidence >= 90
+
+        if (strong && quickSignalDirection == "NONE") {
+            quickSignal = direction
+            quickSignalDirection = direction
+            quickSignalEntry = runningCandle.close
+            quickActiveUntilBucket = nowBucket + 1L
+            quickLastSignalBucket = nowBucket
+        }
+
+        sendQuickStatus(
+            if (strong) direction else "NO TRADE",
+            confidence,
+            quickHistoricalSampleCount(direction),
+            if (strong) "5S STRONG SETUP" else "WAIT - 90% GATE"
+        )
+    }
+
+'''
+c = c[:start] + quick + c[end:]
+
+# Strict gate remains 90, never 85.
+c = c.replace('private val MIN_CONFIDENCE_TO_QUEUE = 85',
+              'private val MIN_CONFIDENCE_TO_QUEUE = 90')
+c = c.replace('private const val CONFIDENCE_LEVEL = 85',
+              'private const val CONFIDENCE_LEVEL = 90')
+
+cap.write_text(c)
+
+# Main screen: make 5S QUICK the startup mode so the user cannot accidentally
+# run the normal 1M engine while expecting 5S confidence.
+if main.exists():
+    m = main.read_text()
+    m = m.replace('private var selectedTimeframe = "1M"',
+                  'private var selectedTimeframe = "5S"', 1)
+    m = m.replace('private var lastTimeframe = "1M"',
+                  'private var lastTimeframe = "5S"', 1)
+    main.write_text(m)
+
+# Overlay: make QUICK_5S confidence authoritative. Never replace it with a
+# generic 0-confidence frame.
+if overlay.exists():
+    o = overlay.read_text()
+    if 'V22 quick authoritative confidence' not in o:
+        marker = '''            timeframe = intent.getStringExtra("timeframe") ?: timeframe
+'''
+        handler = '''            timeframe = intent.getStringExtra("timeframe") ?: timeframe
+
+            // V22 quick authoritative confidence.
+            if (intent.getStringExtra("status") == "QUICK_5S" &&
+                !activeTrade && !signalLocked
+            ) {
+                nextConfidence =
+                    intent.getIntExtra("quickProbability", nextConfidence)
+                        .coerceIn(0, 100)
+                val qs =
+                    intent.getStringExtra("quickSignal")
+                        ?.uppercase(Locale.US) ?: "NO TRADE"
+                nextSignal =
+                    if (qs == "CALL" || qs == "PUT") qs else "NO TRADE"
+                nextTrend = "5S LIVE"
+                status =
+                    if (nextConfidence >= 90 && nextSignal != "NO TRADE")
+                        "SIGNAL READY"
+                    else
+                        "WAITING"
+                updateOverlay()
+                return
+            }
+'''
+        if marker in o:
+            o = o.replace(marker, handler, 1)
+    overlay.write_text(o)
+
+# Verify V22 landed in the actual extracted project.
+for f, needles in [
+    (cap, [
+        'private const val FRAME_INTERVAL = 200L',
+        'V22 quick activity error',
+        'val confidence = score.coerceIn(0, 100)',
+        'confidence >= 90'
+    ]),
+    (main, ['private var selectedTimeframe = "5S"']),
+]:
+    if not f.exists():
+        raise SystemExit('V22 verify missing file')
+    txt = f.read_text()
+    for n in needles:
+        if n not in txt:
+            raise SystemExit('V22 VERIFY FAIL: ' + n)
+
+print('V22 VERIFIED: 200ms activity feed + CandleAnalyzer confluence + strict 90% gate')
