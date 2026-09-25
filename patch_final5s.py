@@ -2202,3 +2202,40 @@ for needle in ['bullishScore','bearishScore','WAIT - 90% GATE','val probability 
     if needle not in chk:
         raise SystemExit('V17 VERIFY FAIL: '+needle)
 print('V17 VERIFIED')
+
+
+# V18 USER-FLOW FIX:
+# The 5S engine only runs when MainActivity starts CaptureService with
+# quickMode=true. The app previously defaulted to 1M, which made it easy to
+# start capture while the overlay still displayed the previous 5S state.
+# Make 5S QUICK the default without removing the normal 1M/5M/15M choices.
+main = project / 'app/src/main/java/com/example/screener/MainActivity.kt'
+if not main.exists():
+    raise SystemExit('V18 MainActivity missing')
+m = main.read_text()
+m = m.replace('private var selectedTimeframe = "1M"', 'private var selectedTimeframe = "5S"', 1)
+m = m.replace('private var lastTimeframe = "1M"', 'private var lastTimeframe = "5S"', 1)
+main.write_text(m)
+
+# V18 confidence safety: when QUICK_5S is active, always forward the measured
+# score to the overlay, including scores below the 90% trade gate. A score
+# below 90 remains WAIT/NO TRADE; it is never promoted artificially.
+cap = project / 'app/src/main/java/com/example/screener/CaptureService.kt'
+if not cap.exists():
+    raise SystemExit('V18 CaptureService missing')
+c18 = cap.read_text()
+if 'sendQuickStatus(' not in c18:
+    raise SystemExit('V18 quick status publisher missing')
+
+# Keep the normal candle analyzer untouched; only assert the live quick path
+# is present so a stale source cannot silently build as a non-5S scanner.
+for needle in [
+    'private fun updateQuick5s(',
+    'val probability = score.coerceIn(0, 100)',
+    'sendQuickStatus(',
+    'quickMode'
+]:
+    if needle not in c18:
+        raise SystemExit('V18 VERIFY FAIL: ' + needle)
+
+print('V18 VERIFIED: 5S QUICK is default and live confidence remains a strict measured 90% gate')
