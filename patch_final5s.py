@@ -2605,3 +2605,128 @@ if 'V20 quick activity frame error' not in chk:
 if 'val confidence = score.coerceIn(0, 100)' not in chk:
     raise SystemExit('V20 VERIFY: confidence calculation missing')
 print('V20 VERIFIED: quick analyzer runs on every detected frame before 1M guards')
+
+
+# V21 LIVE CONFIDENCE + ANALYZER
+# The 5S confidence must be visible whenever measurable activity exists.
+# CandleAnalyzer is used as confluence, but a neutral 1M analyzer must not
+# force the live 5S confidence back to zero. A 90% signal still requires
+# agreement from the analyzer OR the recent completed-candle sequence.
+cap = project / 'app/src/main/java/com/example/screener/CaptureService.kt'
+if not cap.exists():
+    raise SystemExit('V21 CaptureService missing')
+v21 = cap.read_text()
+
+old_gate = '''        val strong =
+            (direction == "CALL" || direction == "PUT") &&
+            analyzerDirection == direction &&
+            confidence >= 90'''
+new_gate = '''        val confluence =
+            analyzerDirection == direction ||
+            recentDirection == direction
+
+        val strong =
+            (direction == "CALL" || direction == "PUT") &&
+            confluence &&
+            confidence >= 90'''
+if old_gate in v21:
+    v21 = v21.replace(old_gate, new_gate, 1)
+elif 'val confluence =' not in v21:
+    raise SystemExit('V21 strong gate not found')
+
+# Make the live confidence explicitly reflect recent completed-candle
+# agreement even when CandleAnalyzer itself is neutral.
+old_conf = '''        val confidence = score.coerceIn(0, 100)
+
+        val strong ='''
+new_conf = '''        if (
+            direction != "NO TRADE" &&
+            analyzerDirection == "NO TRADE" &&
+            recentDirection == direction
+        ) {
+            score += 5
+        }
+
+        val confidence = score.coerceIn(0, 100)
+
+        val strong ='''
+if old_conf in v21 and 'analyzerDirection == "NO TRADE"' not in v21[v21.find('val confidence ='):v21.find('val confidence =')+500]:
+    v21 = v21.replace(old_conf, new_conf, 1)
+
+cap.write_text(v21)
+
+# CandleAnalyzer fix: make its trend result less sensitive to a single
+# opposite candle by using the most recent completed-candle majority when
+# the normal score is close. This is a support function only; the detector
+# itself is unchanged.
+candle = project / 'app/src/main/java/com/example/screener/CandleAnalyzer.kt'
+if not candle.exists():
+    raise SystemExit('V21 CandleAnalyzer missing')
+ca = candle.read_text()
+
+if 'fun recentMajorityDirection(' not in ca:
+    helper = '''
+    fun recentMajorityDirection(candles: List<DetectedCandle>): String {
+        if (candles.size < 4) return "NONE"
+        val recent = candles.takeLast(8)
+        val bulls = recent.count { it.close > it.open }
+        val bears = recent.count { it.close < it.open }
+        val move = recent.last().close - recent.first().open
+        return when {
+            bulls >= 5 && move > 0.0 -> "CALL"
+            bears >= 5 && move < 0.0 -> "PUT"
+            bulls >= 4 && move > 0.0 && bulls > bears -> "CALL"
+            bears >= 4 && move < 0.0 && bears > bulls -> "PUT"
+            else -> "NONE"
+        }
+    }
+
+'''
+    # Put helper inside the class, immediately before the final class brace.
+    idx = ca.rfind('\n}')
+    if idx < 0:
+        raise SystemExit('V21 CandleAnalyzer class end missing')
+    ca = ca[:idx] + '\n' + helper + ca[idx:]
+
+candle.write_text(ca)
+
+# Use the new CandleAnalyzer majority as an additional, real confluence input.
+v21 = cap.read_text()
+old_analyzer = '''        val analyzerDirection = when {
+            trend.contains("BULLISH") ||
+                (base?.bullishScore ?: 0) >= (base?.bearishScore ?: 0) + 8 -> "CALL"
+            trend.contains("BEARISH") ||
+                (base?.bearishScore ?: 0) >= (base?.bullishScore ?: 0) + 8 -> "PUT"
+            else -> "NO TRADE"
+        }'''
+new_analyzer = '''        val analyzerMajority =
+            if (candleHistory.size >= 4) {
+                CandleAnalyzer.recentMajorityDirection(
+                    candleHistory.dropLast(1)
+                )
+            } else {
+                "NONE"
+            }
+
+        val analyzerDirection = when {
+            trend.contains("BULLISH") ||
+                (base?.bullishScore ?: 0) >= (base?.bearishScore ?: 0) + 8 -> "CALL"
+            trend.contains("BEARISH") ||
+                (base?.bearishScore ?: 0) >= (base?.bullishScore ?: 0) + 8 -> "PUT"
+            analyzerMajority == "CALL" || analyzerMajority == "PUT" -> analyzerMajority
+            else -> "NO TRADE"
+        }'''
+if old_analyzer in v21:
+    v21=v21.replace(old_analyzer,new_analyzer,1)
+cap.write_text(v21)
+
+# Final V21 verification.
+for f, needles in [
+    (cap, ['val confluence =', 'CandleAnalyzer.recentMajorityDirection(', 'val confidence = score.coerceIn(0, 100)']),
+    (candle, ['fun recentMajorityDirection('])
+]:
+    txt=f.read_text()
+    for n in needles:
+        if n not in txt:
+            raise SystemExit('V21 VERIFY FAIL: '+n)
+print('V21 VERIFIED: CandleAnalyzer majority confluence + live confidence + 90% gate')
