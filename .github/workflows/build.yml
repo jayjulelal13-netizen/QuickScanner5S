@@ -66,6 +66,7 @@ jobs:
           set -eux
           python3 patch_final5s.py
           python3 patch_v13_activity.py
+          python3 patch_v15_activity.py
           grep -n "applicationId" "$PROJECT_DIR/app/build.gradle.kts"
           grep -nE "val top|val bottom|chartRight|minDistance|halfWindow" "$PROJECT_DIR/app/src/main/java/com/example/screener/CandleAnalyzer.kt"
           grep -nE "val probability|val canTrade|WAIT - 90% SETUP" "$PROJECT_DIR/app/src/main/java/com/example/screener/CaptureService.kt"
