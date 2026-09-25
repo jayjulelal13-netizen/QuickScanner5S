@@ -1953,3 +1953,252 @@ for needle in [
     if needle not in chk:
         raise SystemExit('V16 VERIFY FAIL: '+needle)
 print('V16 VERIFIED: 5S activity + CandleAnalyzer TREND confluence + live confidence')
+
+
+# V17 ROOT FIX: confidence must reflect CandleAnalyzer's actual trend/score
+# even when CandleAnalyzer.signal is NO TRADE. V17 also uses recent completed
+# candle momentum so the visible confidence does not remain 0 just because
+# the current running candle has a small body.
+cap = project / 'app/src/main/java/com/example/screener/CaptureService.kt'
+if not cap.exists():
+    raise SystemExit('V17 CaptureService missing')
+v17 = cap.read_text()
+
+v17_quick = r'''    private fun updateQuick5s(
+        runningCandle: CandleAnalyzer.DetectedCandle
+    ) {
+        val nowBucket = SystemClock.elapsedRealtime() / QUICK_BUCKET_MS
+
+        if (quickBucketId < 0L) {
+            quickBucketId = nowBucket
+            quickBucketOpen = runningCandle.close
+            quickBucketClose = runningCandle.close
+            quickPrevFrameClose = runningCandle.close
+            sendQuickStatus("NO TRADE", 0, 0, "5S WARMING")
+            return
+        }
+
+        val bucketChanged = nowBucket != quickBucketId
+        if (bucketChanged) {
+            quickBucketId = nowBucket
+            quickBucketOpen = runningCandle.close
+            quickBucketClose = runningCandle.close
+            quickPrevFrameClose = runningCandle.close
+        }
+
+        val liveRange =
+            (runningCandle.high - runningCandle.low)
+                .coerceAtLeast(1.0e-9)
+
+        val frameMove =
+            if (
+                !bucketChanged &&
+                quickPrevFrameClose.isFinite() &&
+                runningCandle.close.isFinite()
+            ) {
+                runningCandle.close - quickPrevFrameClose
+            } else {
+                0.0
+            }
+
+        val bucketMove =
+            if (runningCandle.close.isFinite() && quickBucketOpen.isFinite()) {
+                runningCandle.close - quickBucketOpen
+            } else {
+                0.0
+            }
+
+        quickPrevFrameClose = runningCandle.close
+        quickBucketClose = runningCandle.close
+
+        val bodyMove = runningCandle.close - runningCandle.open
+
+        val moveForDirection =
+            when {
+                abs(bucketMove) >= abs(frameMove) && bucketMove != 0.0 -> bucketMove
+                frameMove != 0.0 -> frameMove
+                bodyMove != 0.0 -> bodyMove
+                else -> 0.0
+            }
+
+        val moveStrength =
+            (abs(bucketMove) / liveRange).coerceIn(0.0, 1.0)
+
+        val frameStrength =
+            (abs(frameMove) / liveRange).coerceIn(0.0, 1.0)
+
+        val bodyRatio =
+            if (runningCandle.close.isFinite() && runningCandle.open.isFinite()) {
+                (abs(bodyMove) / liveRange).coerceIn(0.0, 1.0)
+            } else {
+                0.0
+            }
+
+        var microDirection =
+            when {
+                moveForDirection > 0.0 -> "CALL"
+                moveForDirection < 0.0 -> "PUT"
+                else -> "NO TRADE"
+            }
+
+        val recent =
+            if (candleHistory.size > 1) {
+                candleHistory.dropLast(1).takeLast(8)
+            } else {
+                emptyList()
+            }
+
+        val bullCount = recent.count { it.close > it.open }
+        val bearCount = recent.count { it.close < it.open }
+
+        val recentMove =
+            if (recent.size >= 2) {
+                recent.last().close - recent.first().open
+            } else {
+                0.0
+            }
+
+        val recentRange =
+            recent.sumOf {
+                (it.high - it.low).coerceAtLeast(1.0e-9)
+            }
+
+        val recentStrength =
+            if (recentRange > 0.0) {
+                (abs(recentMove) / recentRange).coerceIn(0.0, 1.0)
+            } else {
+                0.0
+            }
+
+        val recentDirection =
+            when {
+                recentMove > 0.0 && bullCount >= 3 -> "CALL"
+                recentMove < 0.0 && bearCount >= 3 -> "PUT"
+                else -> "NO TRADE"
+            }
+
+        val base =
+            if (candleHistory.size >= 25) {
+                try {
+                    CandleAnalyzer.analyzeHistory(
+                        candleHistory.takeLast(MAX_HISTORY),
+                        "1M"
+                    )
+                } catch (_: Exception) {
+                    null
+                }
+            } else {
+                null
+            }
+
+        val trendText =
+            base?.trend?.uppercase(Locale.US) ?: ""
+
+        val analyzerDirection =
+            when {
+                trendText.contains("BULLISH") ||
+                    trendText.contains("RANGE / SUPPORT") -> "CALL"
+                trendText.contains("BEARISH") ||
+                    trendText.contains("RANGE / RESISTANCE") -> "PUT"
+                (base?.bullishScore ?: 0) >= (base?.bearishScore ?: 0) + 8 ->
+                    "CALL"
+                (base?.bearishScore ?: 0) >= (base?.bullishScore ?: 0) + 8 ->
+                    "PUT"
+                else -> "NO TRADE"
+            }
+
+        if (
+            microDirection == "NO TRADE" &&
+            recentDirection != "NO TRADE"
+        ) {
+            microDirection = recentDirection
+        }
+
+        var score =
+            if (microDirection == "CALL" || microDirection == "PUT") 15 else 0
+
+        score += when {
+            moveStrength >= 0.30 -> 30
+            moveStrength >= 0.20 -> 26
+            moveStrength >= 0.12 -> 22
+            moveStrength >= 0.08 -> 17
+            moveStrength >= 0.04 -> 12
+            moveStrength >= 0.02 -> 7
+            moveStrength > 0.0 -> 3
+            else -> 0
+        }
+
+        score += when {
+            frameStrength >= 0.12 -> 8
+            frameStrength >= 0.06 -> 6
+            frameStrength >= 0.02 -> 4
+            frameStrength > 0.0 -> 2
+            else -> 0
+        }
+
+        score += when {
+            bodyRatio >= 0.60 -> 20
+            bodyRatio >= 0.40 -> 17
+            bodyRatio >= 0.25 -> 13
+            bodyRatio >= 0.15 -> 8
+            bodyRatio >= 0.08 -> 4
+            else -> 0
+        }
+
+        if (
+            analyzerDirection != "NO TRADE" &&
+            analyzerDirection == microDirection
+        ) {
+            score += 15
+        }
+
+        if (
+            recentDirection != "NO TRADE" &&
+            recentDirection == microDirection
+        ) {
+            score += 10
+        }
+
+        if (recentStrength >= 0.25) score += 5
+        else if (recentStrength >= 0.12) score += 3
+
+        val probability = score.coerceIn(0, 100)
+
+        val strong =
+            (microDirection == "CALL" || microDirection == "PUT") &&
+            analyzerDirection == microDirection &&
+            probability >= MIN_CONFIDENCE_TO_QUEUE
+
+        if (strong && quickSignalDirection == "NONE") {
+            quickSignal = microDirection
+            quickSignalDirection = microDirection
+            quickSignalEntry = runningCandle.close
+            quickActiveUntilBucket = nowBucket + 1L
+            quickLastSignalBucket = nowBucket
+        }
+
+        val visibleSignal =
+            if (strong) microDirection else "NO TRADE"
+
+        sendQuickStatus(
+            visibleSignal,
+            probability,
+            0,
+            if (strong) "5S STRONG SETUP" else "WAIT - 90% GATE"
+        )
+    }
+
+'''
+
+start=v17.find('    private fun updateQuick5s(')
+end=v17.find('    private fun quickHistoricalProbability', start)
+if (start < 0 || end < 0):
+    raise SystemExit('V17 quick function markers missing')
+v17=v17[:start]+v17_quick+v17[end:]
+cap.write_text(v17)
+
+chk=cap.read_text()
+for needle in ['bullishScore','bearishScore','WAIT - 90% GATE','val probability = score.coerceIn(0, 100)']:
+    if needle not in chk:
+        raise SystemExit('V17 VERIFY FAIL: '+needle)
+print('V17 VERIFIED')
