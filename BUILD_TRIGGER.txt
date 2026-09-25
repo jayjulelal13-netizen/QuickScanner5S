@@ -1,2 +1,2 @@
-V18 FINAL BUILD: CandleAnalyzer trend + live 5S activity confidence; 5S QUICK default; per-frame feed; strict 90% gate; no auto-order.
-CANDLE_ANALYZER_5S_ACTIVITY_FIX_2026-09-25-V18
+V19 FINAL: CandleAnalyzer activity feed + live 5S confidence path; no stale frame gate; strict 90% gate; no auto-order.
+CANDLE_ANALYZER_ACTIVITY_FIX_2026-09-25-V19
