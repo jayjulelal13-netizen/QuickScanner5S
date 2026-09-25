@@ -18,27 +18,23 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
-
       - name: Verify Android SDK
         run: |
           set -eux
           test -d "$ANDROID_HOME"
           test -d "$ANDROID_HOME/platforms/android-35"
           test -d "$ANDROID_HOME/build-tools/35.0.0"
-
       - name: Extract FINAL project
         run: |
           set -eux
           rm -rf build_project
           mkdir -p build_project
           unzip -q QuickScanner5S_CANDLE_ENGINE_FINAL.zip -d build_project
-
       - name: Find Android project
         run: |
           set -eux
@@ -46,7 +42,6 @@ jobs:
           test -n "$PROJECT_DIR"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
           echo "PROJECT_DIR=$PROJECT_DIR"
-
       - name: Export source for root-cause fix
         run: |
           set -eux
@@ -60,7 +55,6 @@ jobs:
             git commit -m "[skip ci] Export QuickScanner5S source for debugging"
             git push
           fi
-
       - name: Apply final candle + 5S engine fix
         run: |
           set -eux
@@ -70,10 +64,10 @@ jobs:
           python3 patch_v18_final.py
           python3 patch_v19_compile.py
           python3 patch_v20_candle_types.py
+          python3 patch_v21_activity.py
           grep -n "applicationId" "$PROJECT_DIR/app/build.gradle.kts"
           grep -nE "val top|val bottom|chartRight|minDistance|halfWindow" "$PROJECT_DIR/app/src/main/java/com/example/screener/CandleAnalyzer.kt"
-          grep -nE "val probability|WAIT - 90% GATE|analyzeQuickActivity" "$PROJECT_DIR/app/src/main/java/com/example/screener/CaptureService.kt"
-
+          grep -nE "val probability|WAIT - 90% GATE|quickActivityScore|V21 quick activity" "$PROJECT_DIR/app/src/main/java/com/example/screener/CaptureService.kt"
       - name: Sanitize Android manifest
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
@@ -100,16 +94,13 @@ jobs:
           test -d app
           test -f app/build.gradle.kts -o -f app/build.gradle
           test -f app/src/main/AndroidManifest.xml
-
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.11.1"
-
       - name: Build APK
         working-directory: ${{ env.PROJECT_DIR }}
         run: gradle :app:assembleRelease --no-daemon --stacktrace
-
       - name: Re-sign APK as release-style package
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
@@ -129,12 +120,9 @@ jobs:
           ls -lh app/build/outputs/apk/release/QuickScanner5S.apk
           $ANDROID_HOME/build-tools/35.0.0/apksigner verify --verbose app/build/outputs/apk/release/QuickScanner5S.apk
           $ANDROID_HOME/build-tools/35.0.0/apksigner verify --verbose --print-certs app/build/outputs/apk/release/QuickScanner5S.apk
-
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: QuickScanner5S-FINAL-INSTALLABLE
           path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/release/QuickScanner5S.apk
           if-no-files-found: error
-
-# final V15 activity pipeline
