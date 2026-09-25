@@ -1,3 +1,2 @@
-V15 build: CandleAnalyzer activity fed every 200ms frame; no auto-order; confidence is measured with strict 90% gate.
- 
-CANDLE_ANALYZER_5S_ACTIVITY_FIX_2026-09-25
+V17 FINAL BUILD: CandleAnalyzer trend + live 5S activity confidence; per-frame feed; strict 90% gate; no auto-order.
+CANDLE_ANALYZER_5S_ACTIVITY_FIX_2026-09-25-V17
