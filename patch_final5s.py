@@ -1630,3 +1630,47 @@ for needle in [
     if needle not in chk:
         raise SystemExit('V14 VERIFY FAIL: '+needle)
 print('V14 VERIFIED: live CandleAnalyzer + 5S activity confidence')
+
+
+# V15 ROOT FIX: feed the 5S activity engine from the freshly detected
+# running candle on every processed frame. Earlier V13/V14 insertion could
+# land outside the normal same-candle path, leaving confidence at 0%.
+cap = project / 'app/src/main/java/com/example/screener/CaptureService.kt'
+if not cap.exists():
+    raise SystemExit('V15 CaptureService missing')
+v15 = cap.read_text()
+
+same_candle_anchor = '''        /*
+         * Update running candle continuously.
+         */
+        previousRunningCandle =
+            currentRunningCandle
+
+        previousRunningCandleSignature =
+            createCandleSignature(
+                currentRunningCandle
+            )
+'''
+same_candle_inject = same_candle_anchor + '''
+        // V15: QUICK 5S is an intrabar engine. Feed it the freshly
+        // detected running candle on every processed frame. This is
+        // deliberately outside visible-signature/history-change gating.
+        if (quickMode) {
+            try {
+                updateQuick5s(currentRunningCandle)
+            } catch (e: Exception) {
+                Log.e(TAG, "V15 quick activity frame error", e)
+            }
+        }
+'''
+if 'V15 quick activity frame error' not in v15:
+    if same_candle_anchor not in v15:
+        raise SystemExit('V15 same-candle anchor missing')
+    v15 = v15.replace(same_candle_anchor, same_candle_inject, 1)
+
+cap.write_text(v15)
+
+chk = cap.read_text()
+if 'V15 quick activity frame error' not in chk:
+    raise SystemExit('V15 VERIFY FAIL: per-frame quick activity call missing')
+print('V15 VERIFIED: quick activity receives every same-candle capture frame')
