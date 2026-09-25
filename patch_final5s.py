@@ -2542,3 +2542,66 @@ for needle in [
 if 'V19 quick status handler' not in ov_check:
     raise SystemExit('V19 VERIFY FAIL OverlayService handler')
 print('V19 FINAL: live activity + CandleAnalyzer confluence + 90% gate + overlay bridge')
+
+
+# V20 FINAL ROOT FIX
+# Feed the 5S activity engine immediately after every successful candle
+# detection. The old V19 call was placed later in processBitmap(), after
+# period/new-candle guards that can return before QUICK gets a frame.
+# This driver is deliberately placed at the first safe point: right after
+# currentRunningCandle is known. It makes confidence independent of the
+# normal 1M signal-window logic.
+cap = project / 'app/src/main/java/com/example/screener/CaptureService.kt'
+if not cap.exists():
+    raise SystemExit('V20 CaptureService missing')
+v20 = cap.read_text()
+
+v20_driver = '''
+        // V20: QUICK 5S is a live activity analyzer. Feed it on EVERY
+        // successfully detected frame, before any 1M period guard can return.
+        if (quickMode) {
+            try {
+                updateQuick5s(currentRunningCandle)
+            } catch (e: Exception) {
+                Log.e(TAG, "V20 quick activity frame error", e)
+            }
+        }
+
+'''
+anchor_v20 = '''        val currentRunningCandle =
+            detected.last()
+
+        val nowMillis =
+            System.currentTimeMillis()
+'''
+if anchor_v20 not in v20:
+    raise SystemExit('V20 insertion anchor missing')
+
+# Remove the later V19 driver so each frame is processed exactly once.
+v20 = v20.replace('''        if (quickMode) {
+            try {
+                updateQuick5s(currentRunningCandle)
+            } catch (e: Exception) {
+                Log.e(TAG, "V19 quick activity frame error", e)
+            }
+        }
+''', '', 1)
+
+v20 = v20.replace(anchor_v20, '''        val currentRunningCandle =
+            detected.last()
+
+''' + v20_driver + '''        val nowMillis =
+            System.currentTimeMillis()
+''', 1)
+
+cap.write_text(v20)
+
+# V20 verification.
+chk = cap.read_text()
+if chk.count('updateQuick5s(currentRunningCandle)') != 1:
+    raise SystemExit('V20 VERIFY: expected exactly one live quick driver')
+if 'V20 quick activity frame error' not in chk:
+    raise SystemExit('V20 VERIFY: live driver missing')
+if 'val confidence = score.coerceIn(0, 100)' not in chk:
+    raise SystemExit('V20 VERIFY: confidence calculation missing')
+print('V20 VERIFIED: quick analyzer runs on every detected frame before 1M guards')
