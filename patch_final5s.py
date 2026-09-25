@@ -2732,6 +2732,7 @@ for f, needles in [
 print('V21 VERIFIED: CandleAnalyzer majority confluence + live confidence + 90% gate')
 
 
+# V23 FINAL USER FIX - rebuild current CandleAnalyzer activity path
 # V22 FINAL USER FIX
 # User requirement: 5S QUICK confidence must be driven by CandleAnalyzer/activity
 # on every detected frame. Keep the strict 90% gate (previously 85%).
