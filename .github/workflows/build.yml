@@ -66,6 +66,7 @@ jobs:
           python3 patch_v20_candle_types.py
           python3 patch_v21_activity.py
           python3 patch_v22_activity.py
+          python3 patch_v23_activity.py
           grep -n "applicationId" "$PROJECT_DIR/app/build.gradle.kts"
           grep -nE "val top|val bottom|chartRight|minDistance|halfWindow" "$PROJECT_DIR/app/src/main/java/com/example/screener/CandleAnalyzer.kt"
           grep -nE "val probability|WAIT - 90% GATE|quickActivityScore|V21 quick activity" "$PROJECT_DIR/app/src/main/java/com/example/screener/CaptureService.kt"
