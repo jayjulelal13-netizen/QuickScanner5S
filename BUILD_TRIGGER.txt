@@ -1,2 +1,3 @@
 V20 FINAL: CandleAnalyzer activity feed + live 5S confidence path; per-frame 200ms feed; strict 90% gate; no auto-order.
-BUILD 2026-09-25T08:43:24.417Z
+BUILD 2026-09-25T08:43:24.417Z 
+V19-CANDLE-ACTIVITY-FINAL-2026-09-25
