@@ -1,2 +1,2 @@
-V19 FINAL: CandleAnalyzer activity feed + live 5S confidence path; no stale frame gate; strict 90% gate; no auto-order.
-CANDLE_ANALYZER_ACTIVITY_FIX_2026-09-25-V19-BUILD
+V20 FINAL: CandleAnalyzer activity feed + live 5S confidence path; per-frame 200ms feed; strict 90% gate; no auto-order.
+BUILD 2026-09-25T08:43:24.417Z
