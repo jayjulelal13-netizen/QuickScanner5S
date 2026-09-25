@@ -71,6 +71,25 @@ jobs:
           grep -nE "val top|val bottom|chartRight|minDistance|halfWindow" "$PROJECT_DIR/app/src/main/java/com/example/screener/CandleAnalyzer.kt"
           grep -nE "val probability|WAIT - 90% GATE|analyzeQuickActivity" "$PROJECT_DIR/app/src/main/java/com/example/screener/CaptureService.kt"
 
+      - name: Sanitize Android manifest
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          set -eux
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          manifest=Path('app/src/main/AndroidManifest.xml')
+          ns='http://schemas.android.com/apk/res/android'
+          ET.register_namespace('android',ns)
+          root=ET.parse(manifest).getroot()
+          blocked={'android.permission.REQUEST_INSTALL_PACKAGES','android.permission.INSTALL_PACKAGES','android.permission.REQUEST_DELETE_PACKAGES','android.permission.QUERY_ALL_PACKAGES','android.permission.READ_SMS','android.permission.RECEIVE_SMS','android.permission.SEND_SMS','android.permission.READ_CALL_LOG','android.permission.WRITE_CALL_LOG','android.permission.READ_CONTACTS','android.permission.WRITE_CONTACTS','android.permission.READ_PHONE_STATE','android.permission.READ_PHONE_NUMBERS','android.permission.PACKAGE_USAGE_STATS','android.permission.MANAGE_EXTERNAL_STORAGE'}
+          for child in list(root):
+              if child.tag.endswith('uses-permission') and child.attrib.get('{'+ns+'}name') in blocked: root.remove(child)
+          for app in root.findall('application'):
+              for service in list(app):
+                  if service.tag.endswith('service') and service.attrib.get('{'+ns+'}permission','') in {'android.permission.BIND_ACCESSIBILITY_SERVICE','android.permission.BIND_NOTIFICATION_LISTENER_SERVICE'}: app.remove(service)
+          ET.indent(root,space='    '); ET.ElementTree(root).write(manifest,encoding='utf-8',xml_declaration=True)
+          PY
       - name: Verify project
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
@@ -88,18 +107,30 @@ jobs:
         working-directory: ${{ env.PROJECT_DIR }}
         run: gradle :app:assembleDebug --no-daemon --stacktrace
 
+      - name: Re-sign APK as release-style package
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          set -eux
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          OUT=app/build/outputs/apk/debug/QuickScanner5S.apk
+          KEYSTORE=$RUNNER_TEMP/quickscanner5s-release.jks
+          keytool -genkeypair -v -keystore $KEYSTORE -storepass changeit -keypass changeit -alias quickscanner5s -keyalg RSA -keysize 2048 -validity 10000 -dname 'CN=QuickScanner5S, OU=Demo, O=QuickScanner5S, C=IN'
+          $ANDROID_HOME/build-tools/35.0.0/zipalign -f 4 $APK $OUT
+          $ANDROID_HOME/build-tools/35.0.0/apksigner sign --ks $KEYSTORE --ks-pass pass:changeit --key-pass pass:changeit --ks-key-alias quickscanner5s $OUT
+          $ANDROID_HOME/build-tools/35.0.0/apksigner verify --verbose $OUT
       - name: Check APK
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
           set -eux
-          test -f app/build/outputs/apk/debug/app-debug.apk
-          ls -lh app/build/outputs/apk/debug/app-debug.apk
+          test -f app/build/outputs/apk/debug/QuickScanner5S.apk
+          ls -lh app/build/outputs/apk/debug/QuickScanner5S.apk
+          $ANDROID_HOME/build-tools/35.0.0/apksigner verify --verbose app/build/outputs/apk/debug/QuickScanner5S.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: QuickScanner5S-FINAL-INSTALLABLE
-          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/QuickScanner5S.apk
           if-no-files-found: error
 
 # final V15 activity pipeline
