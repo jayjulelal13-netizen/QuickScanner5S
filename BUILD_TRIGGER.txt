@@ -1,1 +1,1 @@
-CandleAnalyzer 5S live activity confidence fix - 2026-09-25T05:39:56.643Z
+V15 build: CandleAnalyzer activity fed every 200ms frame; no auto-order; confidence is measured with strict 90% gate.
