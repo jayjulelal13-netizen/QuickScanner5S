@@ -2,5 +2,6 @@ V36-CANDLE-ACTIVITY-FIX-2026-09-26T17:50:00+05:30
 
 Rebuild QuickScanner5S: CandleAnalyzer live activity on every detected frame, 5S QUICK confidence pipeline, strict 90% gate. Do not alter candle detection. Installable APK required.
 
-V24/V36 activity confidence fix. 
+V24/V36 activity confidence fix.
 CANDLE_ACTIVITY_V24_BUILD_2026-09-26T18:02:00+05:30
+V24_FINAL_REBUILD_2026-09-26T18:30:00+05:30
