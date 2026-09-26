@@ -58,7 +58,6 @@ jobs:
       - name: Apply final candle + 5S engine fix
         run: |
           set -eux
-          python3 patch_final5s.py || echo "Legacy patch verification warning; continue with final V13/V15 patches"
           python3 patch_v13_activity.py
           python3 patch_v15_activity.py
           python3 patch_v18_final.py
@@ -68,6 +67,7 @@ jobs:
           python3 patch_v22_activity.py
           python3 patch_v23_activity.py
           python3 patch_v25_activity.py
+          echo "V25 patch completed; proceeding to clean release build"
           grep -n "applicationId" "$PROJECT_DIR/app/build.gradle.kts"
           grep -nE "val top|val bottom|chartRight|minDistance|halfWindow" "$PROJECT_DIR/app/src/main/java/com/example/screener/CandleAnalyzer.kt"
           grep -nE "val probability|WAIT - 90% GATE|quickActivityScore|V21 quick activity" "$PROJECT_DIR/app/src/main/java/com/example/screener/CaptureService.kt"
