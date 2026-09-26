@@ -428,8 +428,7 @@ if "V25 quick activity driver error" not in c:
 """
     if anchor not in c:
         raise SystemExit("V25: currentRunningCandle anchor missing")
-    c = c.replace(anchor, anchor + "
-" + driver, 1)
+    c = c.replace(anchor, anchor + "\n" + driver, 1)
 
 # Add a post-history-refresh driver. We deliberately use a unique marker and
 # do not touch the normal 1M completed-candle trade logic.
@@ -451,8 +450,7 @@ if "V25 post-history quick activity error" not in c:
     pos = c.find("        previousRunningCandle =")
     if pos < 0:
         raise SystemExit("V25: post-history anchor missing")
-    c = c[:pos] + post + "
-" + c[pos:]
+    c = c[:pos] + post + "\n" + c[pos:]
 
 cap.write_text(c)
 
