@@ -3063,3 +3063,242 @@ for f, needles in [
             raise SystemExit('V22 VERIFY FAIL: ' + n)
 
 print('V22 VERIFIED: 200ms activity feed + CandleAnalyzer confluence + strict 90% gate')
+
+
+# V24 FINAL CANDLE ACTIVITY FIX
+# The normal CandleAnalyzer intentionally returns confidence=0 unless a full
+# completed-candle setup is present. That is correct for 1M, but it was also
+# being used as the gate for 5S QUICK. Give QUICK its own measured activity
+# analyzer: current running candle + recent completed sequence. No fake score,
+# and 90% remains the hard signal gate.
+
+cap = project / 'app/src/main/java/com/example/screener/CaptureService.kt'
+candle = project / 'app/src/main/java/com/example/screener/CandleAnalyzer.kt'
+if not cap.exists() or not candle.exists():
+    raise SystemExit('V24 source missing')
+
+ca = candle.read_text()
+
+if 'data class LiveActivityResult' not in ca:
+    helper = r'''
+    data class LiveActivityResult(
+        val direction: String,
+        val confidence: Int,
+        val bodyRatio: Double,
+        val recentStrength: Double
+    )
+
+    fun analyzeLiveActivity(
+        running: DetectedCandle,
+        completed: List<DetectedCandle>
+    ): LiveActivityResult {
+        val range = (running.high - running.low).coerceAtLeast(1.0e-9)
+        val body = abs(running.close - running.open)
+        val bodyRatio = (body / range).coerceIn(0.0, 1.0)
+
+        val recent = completed.takeLast(8)
+        val bulls = recent.count { it.close > it.open }
+        val bears = recent.count { it.close < it.open }
+        val move = if (recent.size >= 2) {
+            recent.last().close - recent.first().open
+        } else 0.0
+        val recentRange = recent.sumOf {
+            (it.high - it.low).coerceAtLeast(1.0e-9)
+        }
+        val recentStrength = if (recentRange > 0.0) {
+            (abs(move) / recentRange).coerceIn(0.0, 1.0)
+        } else 0.0
+
+        val runningDirection = when {
+            body > 0.0 && running.close > running.open -> "CALL"
+            body > 0.0 && running.close < running.open -> "PUT"
+            else -> "NO TRADE"
+        }
+
+        val recentDirection = when {
+            bulls >= 3 && move > 0.0 -> "CALL"
+            bears >= 3 && move < 0.0 -> "PUT"
+            else -> "NO TRADE"
+        }
+
+        val direction = when {
+            runningDirection != "NO TRADE" -> runningDirection
+            recentDirection != "NO TRADE" -> recentDirection
+            else -> "NO TRADE"
+        }
+
+        var score = 0
+        if (direction != "NO TRADE") score += 15
+
+        score += when {
+            bodyRatio >= 0.60 -> 30
+            bodyRatio >= 0.45 -> 25
+            bodyRatio >= 0.30 -> 20
+            bodyRatio >= 0.20 -> 15
+            bodyRatio >= 0.10 -> 10
+            bodyRatio >= 0.04 -> 5
+            bodyRatio > 0.0 -> 2
+            else -> 0
+        }
+
+        score += when {
+            recentStrength >= 0.30 -> 20
+            recentStrength >= 0.20 -> 16
+            recentStrength >= 0.12 -> 12
+            recentStrength >= 0.06 -> 8
+            recentStrength > 0.0 -> 4
+            else -> 0
+        }
+
+        if (direction != "NO TRADE" && recentDirection == direction) score += 20
+
+        if (completed.size >= 5) {
+            val base = analyzeHistory(completed.takeLast(MAX_CANDLES), "1M")
+            if (base.signal == direction) score += 20
+            else if (
+                direction == "CALL" &&
+                base.trend.uppercase().contains("BULLISH")
+            ) score += 10
+            else if (
+                direction == "PUT" &&
+                base.trend.uppercase().contains("BEARISH")
+            ) score += 10
+        }
+
+        return LiveActivityResult(
+            direction = direction,
+            confidence = score.coerceIn(0, 100),
+            bodyRatio = bodyRatio,
+            recentStrength = recentStrength
+        )
+    }
+
+'''
+    idx=ca.rfind('\n}')
+    if idx<0: raise SystemExit('V24 CandleAnalyzer class end missing')
+    ca=ca[:idx]+ '\n'+helper+ca[idx:]
+    candle.write_text(ca)
+
+c = cap.read_text()
+start=c.find('    private fun updateQuick5s(')
+end=c.find('    private fun quickHistoricalProbability',start)
+if start<0 or end<0: raise SystemExit('V24 quick function markers missing')
+
+quick=r'''    private fun updateQuick5s(
+        runningCandle: CandleAnalyzer.DetectedCandle
+    ) {
+        val nowBucket = SystemClock.elapsedRealtime() / QUICK_BUCKET_MS
+
+        if (quickBucketId < 0L) {
+            quickBucketId = nowBucket
+            quickBucketOpen = runningCandle.close
+            quickBucketClose = runningCandle.close
+            quickPrevFrameClose = runningCandle.close
+        }
+
+        val bucketChanged = nowBucket != quickBucketId
+        if (bucketChanged) {
+            quickBucketId = nowBucket
+            quickBucketOpen = runningCandle.close
+            quickBucketClose = runningCandle.close
+            quickPrevFrameClose = runningCandle.close
+        }
+
+        val completed = if (candleHistory.size > 1) {
+            candleHistory.dropLast(1)
+        } else {
+            emptyList()
+        }
+
+        // V24: CandleAnalyzer is the activity source. The running candle is
+        // included here; completed-candle analysis is only confluence.
+        val live = try {
+            CandleAnalyzer.analyzeLiveActivity(runningCandle, completed)
+        } catch (_: Exception) {
+            null
+        }
+
+        val range = (runningCandle.high - runningCandle.low)
+            .coerceAtLeast(1.0e-9)
+
+        val frameMove =
+            if (!bucketChanged &&
+                quickPrevFrameClose.isFinite() &&
+                runningCandle.close.isFinite()
+            ) runningCandle.close - quickPrevFrameClose else 0.0
+
+        val bucketMove =
+            if (quickBucketOpen.isFinite() && runningCandle.close.isFinite())
+                runningCandle.close - quickBucketOpen
+            else 0.0
+
+        quickPrevFrameClose = runningCandle.close
+        quickBucketClose = runningCandle.close
+
+        val bodyMove = runningCandle.close - runningCandle.open
+        val frameStrength = (abs(frameMove) / range).coerceIn(0.0, 1.0)
+        val bucketStrength = (abs(bucketMove) / range).coerceIn(0.0, 1.0)
+
+        val direction = live?.direction ?: when {
+            bodyMove > 0.0 -> "CALL"
+            bodyMove < 0.0 -> "PUT"
+            frameMove > 0.0 -> "CALL"
+            frameMove < 0.0 -> "PUT"
+            else -> "NO TRADE"
+        }
+
+        var score = live?.confidence ?: 0
+
+        // Live 5S movement is additional evidence, not a replacement for the
+        // CandleAnalyzer activity score.
+        score += when {
+            bucketStrength >= 0.25 -> 12
+            bucketStrength >= 0.12 -> 8
+            bucketStrength >= 0.05 -> 5
+            bucketStrength > 0.0 -> 2
+            else -> 0
+        }
+
+        score += when {
+            frameStrength >= 0.10 -> 6
+            frameStrength >= 0.04 -> 4
+            frameStrength > 0.0 -> 2
+            else -> 0
+        }
+
+        val confidence = score.coerceIn(0, 100)
+
+        // 90% is still the only signal gate.
+        val strong =
+            (direction == "CALL" || direction == "PUT") &&
+            confidence >= 90
+
+        if (strong && quickSignalDirection == "NONE") {
+            quickSignal = direction
+            quickSignalDirection = direction
+            quickSignalEntry = runningCandle.close
+            quickActiveUntilBucket = nowBucket + 1L
+            quickLastSignalBucket = nowBucket
+        }
+
+        sendQuickStatus(
+            if (strong) direction else "NO TRADE",
+            confidence,
+            quickHistoricalSampleCount(direction),
+            if (strong) "5S STRONG SETUP" else "WAIT - 90% GATE"
+        )
+    }
+
+'''
+c=c[:start]+quick+c[end:]
+cap.write_text(c)
+
+# V24 verification
+for f, needles in [
+    (candle,['data class LiveActivityResult','fun analyzeLiveActivity(']),
+    (cap,['CandleAnalyzer.analyzeLiveActivity(','val confidence = score.coerceIn(0, 100)','confidence >= 90'])
+]:
+    txt=f.read_text()
+    for n in needles:
+        if n not in txt: raise SystemExit('V24 VERIFY FAIL: '+n)
+print('V24 VERIFIED: running CandleAnalyzer activity + recent confluence + strict 90% gate')
