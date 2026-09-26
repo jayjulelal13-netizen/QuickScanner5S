@@ -1,3 +1,3 @@
-V32-CANDLE-ANALYZER-LIVE-CONFIDENCE-FINAL-2026-09-26T14:27:00+05:30
+V33-CANDLE-ANALYZER-ACTIVITY-FINAL-2026-09-26T14:28:00+05:30
 
-Rebuild latest CandleAnalyzer + live 5S confidence engine; no candle detector changes.
+Build the current CandleAnalyzer + live 5S activity confidence engine. Keep candle detection unchanged. 90% remains the strict signal gate.
