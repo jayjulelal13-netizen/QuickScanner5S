@@ -1,5 +1,5 @@
-V35-CANDLE-ANALYZER-ACTIVITY-BUILD-2026-09-26T14:45:00+05:30
+V36-CANDLE-ACTIVITY-FIX-2026-09-26T17:50:00+05:30
 
-Build current QuickScanner5S with CandleAnalyzer + live 5S activity confidence. Feed analyzer on every detected frame. Keep candle detection unchanged. Strict 90% signal gate. Produce installable APK for testing.
+Rebuild QuickScanner5S: CandleAnalyzer live activity on every detected frame, 5S QUICK confidence pipeline, strict 90% gate. Do not alter candle detection. Installable APK required.
 
-V24 CandleAnalyzer live activity build 2026-09-26
+V24/V36 activity confidence fix.
