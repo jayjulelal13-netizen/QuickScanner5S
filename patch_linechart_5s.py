@@ -58,9 +58,9 @@ object LineChartAnalyzer {
         // price is the TOP EDGE of that area, never the average of all blue
         // pixels (the old average produced fake momentum).
         val left = (w * 0.03f).roundToInt().coerceAtLeast(0)
-        val right = (w * 0.42f).roundToInt().coerceAtMost(w - 1)
-        val top = (h * 0.18f).roundToInt().coerceAtLeast(0)
-        val bottom = (h * 0.54f).roundToInt().coerceAtMost(h - 1)
+        val right = (w * 0.58f).roundToInt().coerceAtMost(w - 1)
+        val top = (h * 0.17f).roundToInt().coerceAtLeast(0)
+        val bottom = (h * 0.64f).roundToInt().coerceAtMost(h - 1)
         if (right - left < 120 || bottom - top < 120) return null
 
         val hsv = FloatArray(3)
@@ -156,9 +156,18 @@ proc_insert = """        if (!running) {
                     updateQuickLine5s(lineY)
                     sendCandleCount(0)
                     return
+                } else {
+                    // In 5S QUICK, a missing line is a hard gate.
+                    // NEVER fall through to the normal candle engine.
+                    sendQuickStatus("NO TRADE", 0, 0, "NO LINE CHART • WAITING")
+                    sendCandleCount(0)
+                    return
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Line chart detection failed", e)
+                sendQuickStatus("NO TRADE", 0, 0, "LINE DETECTION WAITING")
+                sendCandleCount(0)
+                return
             }
         }
 
