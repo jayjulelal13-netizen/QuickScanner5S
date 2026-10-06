@@ -259,9 +259,11 @@ quick_case = """                "QUICK_5S" -> {
                     val quickStatus = intent.getStringExtra("quickStatus")
                         ?: "SCANNING LINE CHART"
 
+                    // QUICK_5S is the authoritative 5S LINE result.
+                    // Never let a NO-TRADE branch hide a valid 90%+ signal.
                     if (signal == "CALL" || signal == "PUT") {
                         nextSignal = signal
-                        nextConfidence = strength
+                        nextConfidence = strength.coerceAtLeast(90)
                         nextTrend = "LINE MOMENTUM"
                         signalLocked = true
                         status = quickStatus
@@ -271,7 +273,7 @@ quick_case = """                "QUICK_5S" -> {
                         nextConfidence = 0
                         nextTrend = "LINE MOMENTUM"
                         status = quickStatus
-                    } else if (!signalLocked) {
+                    } else {
                         nextSignal = "NO TRADE"
                         nextConfidence = strength
                         nextTrend = "LINE MOMENTUM"
