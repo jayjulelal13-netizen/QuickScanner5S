@@ -26,14 +26,14 @@ object LineChartAnalyzer {
         if (w < 300 || h < 500) return null
 
         val left = (w * 0.01f).roundToInt().coerceAtLeast(0)
-        val right = (w * 0.72f).roundToInt().coerceAtMost(w - 1)
+        val right = (w * 0.56f).roundToInt().coerceAtMost(w - 1)
         val top = (h * 0.16f).roundToInt().coerceAtLeast(0)
-        val bottom = (h * 0.64f).roundToInt().coerceAtMost(h - 1)
+        val bottom = (h * 0.70f).roundToInt().coerceAtMost(h - 1)
         if (right - left < 80 || bottom - top < 100) return null
 
         val perColumn = ArrayList<Float>(90)
-        val startX = (right - 95).coerceAtLeast(left)
-        val endX = (right - 18).coerceAtLeast(startX + 1)
+        val startX = (right - 120).coerceAtLeast(left)
+        val endX = (right - 12).coerceAtLeast(startX + 1)
         val hsv = FloatArray(3)
 
         for (x in startX..endX) {
@@ -41,8 +41,8 @@ object LineChartAnalyzer {
             var y = top
             while (y <= bottom) {
                 Color.colorToHSV(bitmap.getPixel(x, y), hsv)
-                if (hsv[0] >= 190f && hsv[0] <= 225f &&
-                    hsv[1] >= 0.30f && hsv[2] >= 0.35f) {
+                if (hsv[0] >= 180f && hsv[0] <= 235f &&
+                    hsv[1] >= 0.22f && hsv[2] >= 0.30f) {
                     ys.add(y)
                 }
                 y += 2
