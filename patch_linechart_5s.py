@@ -295,20 +295,22 @@ quick_case = """                "QUICK_5S" -> {
                     // QUICK_5S is the authoritative 5S LINE result.
                     // Never let a NO-TRADE branch hide a valid 90%+ signal.
                     if (signal == "CALL" || signal == "PUT") {
+                        activeTrade = false
+                        activeConfidence = 0
                         nextSignal = signal
                         nextConfidence = strength.coerceAtLeast(90)
                         nextTrend = "LINE MOMENTUM"
                         signalLocked = true
                         status = quickStatus
-                    } else if (quickStatus.contains("RESULT")) {
+                    } else {
+                        // A non-signal QUICK_5S event must NEVER display its
+                        // raw strength as momentum. Clear all stale trade
+                        // state so 90% can only appear with CALL/PUT locked.
+                        activeTrade = false
+                        activeConfidence = 0
                         signalLocked = false
                         nextSignal = "NO TRADE"
                         nextConfidence = 0
-                        nextTrend = "LINE MOMENTUM"
-                        status = quickStatus
-                    } else {
-                        nextSignal = "NO TRADE"
-                        nextConfidence = strength
                         nextTrend = "LINE MOMENTUM"
                         status = quickStatus
                     }
@@ -357,10 +359,18 @@ o = o.replace(result_marker, result_replacement, 1)
 import re
 overlay_block = re.compile(r'(?s)(private fun buildOverlayText\(\): String \{).*?(\n    private fun formatPrice)', re.MULTILINE)
 replacement_body = r'''\1
-        val shownConfidence = when {
-            activeTrade -> activeConfidence
-            signalLocked -> nextConfidence
-            else -> nextConfidence
+        val shownConfidence = if (quickMode) {
+            if (signalLocked && (nextSignal == "CALL" || nextSignal == "PUT")) {
+                nextConfidence.coerceAtLeast(90)
+            } else {
+                0
+            }
+        } else {
+            when {
+                activeTrade -> activeConfidence
+                signalLocked -> nextConfidence
+                else -> nextConfidence.coerceAtMost(89)
+            }
         }
         val resultText = if (recentResults.isEmpty()) "-" else {
             val wins = recentResults.count { it == "WIN" }
