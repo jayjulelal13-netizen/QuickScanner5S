@@ -243,28 +243,29 @@ line_engine = """    private fun updateQuickLine5s(priceY: Double) {
         val movement = kotlin.math.abs(delta)
 
         val movementScore = when {
-            movement >= 30.0 -> 45
-            movement >= 24.0 -> 40
-            movement >= 20.0 -> 34
-            movement >= 16.0 -> 28
-            movement >= 12.0 -> 20
-            movement >= 8.0 -> 12
+            movement >= 20.0 -> 45
+            movement >= 16.0 -> 40
+            movement >= 12.0 -> 34
+            movement >= 8.0 -> 28
+            movement >= 6.0 -> 20
+            movement >= 4.0 -> 12
             else -> 6
         }
         val agreementScore = when {
-            agreement >= 0.78 -> 45
-            agreement >= 0.72 -> 40
-            agreement >= 0.66 -> 32
-            agreement >= 0.60 -> 24
+            agreement >= 0.66 -> 45
+            agreement >= 0.60 -> 40
+            agreement >= 0.55 -> 32
+            agreement >= 0.50 -> 24
             else -> 12
         }
 
         val momentum = (movementScore + agreementScore).coerceIn(0, 99)
         val strongDirection = if (up > down) "CALL" else "PUT"
 
-        // Both meaningful movement and strong directional agreement are
-        // mandatory. This removes the previous false-90% behavior.
-        val strong = movement >= 30.0 && agreement >= 0.78 && momentum >= 90
+        // Meaningful movement and strong directional agreement are
+        // mandatory. The gate is practical enough to trigger on real line
+        // moves while still rejecting weak/noisy motion.
+        val strong = movement >= 20.0 && agreement >= 0.66 && momentum >= 90
 
         if (strong) {
             lineSignalDirection = strongDirection
