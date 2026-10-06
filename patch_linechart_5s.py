@@ -243,21 +243,20 @@ line_engine = """    private fun updateQuickLine5s(priceY: Double) {
         val movement = kotlin.math.abs(delta)
 
         val movementScore = when {
-            movement >= 55.0 -> 45
-            movement >= 40.0 -> 38
-            movement >= 30.0 -> 32
-            movement >= 22.0 -> 26
-            movement >= 16.0 -> 20
-            movement >= 12.0 -> 14
-            else -> 8
+            movement >= 30.0 -> 45
+            movement >= 24.0 -> 40
+            movement >= 20.0 -> 34
+            movement >= 16.0 -> 28
+            movement >= 12.0 -> 20
+            movement >= 8.0 -> 12
+            else -> 6
         }
         val agreementScore = when {
-            agreement >= 0.92 -> 45
-            agreement >= 0.85 -> 40
-            agreement >= 0.78 -> 34
-            agreement >= 0.72 -> 27
-            agreement >= 0.66 -> 20
-            else -> 10
+            agreement >= 0.78 -> 45
+            agreement >= 0.72 -> 40
+            agreement >= 0.66 -> 32
+            agreement >= 0.60 -> 24
+            else -> 12
         }
 
         val momentum = (movementScore + agreementScore).coerceIn(0, 99)
@@ -265,7 +264,7 @@ line_engine = """    private fun updateQuickLine5s(priceY: Double) {
 
         // Both meaningful movement and strong directional agreement are
         // mandatory. This removes the previous false-90% behavior.
-        val strong = movement >= 22.0 && agreement >= 0.78 && momentum >= 90
+        val strong = movement >= 30.0 && agreement >= 0.78 && momentum >= 90
 
         if (strong) {
             lineSignalDirection = strongDirection
