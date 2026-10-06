@@ -54,19 +54,20 @@ object LineChartAnalyzer {
         val h = bitmap.height
         if (w < 300 || h < 500) return null
 
-        val left = (w * 0.01f).roundToInt().coerceAtLeast(0)
-        val right = (w * 0.70f).roundToInt().coerceAtMost(w - 1)
-        val top = (h * 0.15f).roundToInt().coerceAtLeast(0)
-        val bottom = (h * 0.70f).roundToInt().coerceAtMost(h - 1)
-        if (right - left < 100 || bottom - top < 100) return null
+        // Binomo's visible line chart has a blue filled area. The actual
+        // price is the TOP EDGE of that area, never the average of all blue
+        // pixels (the old average produced fake momentum).
+        val left = (w * 0.03f).roundToInt().coerceAtLeast(0)
+        val right = (w * 0.42f).roundToInt().coerceAtMost(w - 1)
+        val top = (h * 0.18f).roundToInt().coerceAtLeast(0)
+        val bottom = (h * 0.54f).roundToInt().coerceAtMost(h - 1)
+        if (right - left < 120 || bottom - top < 120) return null
 
-        val points = ArrayList<Pair<Int, Float>>(180)
-        val startX = (w * 0.02f).roundToInt().coerceAtLeast(left)
-        val endX = (right - 8).coerceAtLeast(startX + 1)
         val hsv = FloatArray(3)
+        val points = ArrayList<Pair<Int, Float>>(220)
 
-        for (x in startX..endX) {
-            val ys = ArrayList<Int>(12)
+        for (x in left..right step 2) {
+            var minY = Int.MAX_VALUE
             var y = top
             while (y <= bottom) {
                 val pixel = bitmap.getPixel(x, y)
@@ -74,28 +75,32 @@ object LineChartAnalyzer {
                 val r = Color.red(pixel)
                 val g = Color.green(pixel)
                 val b = Color.blue(pixel)
-                val blueHsv = hsv[0] >= 175f && hsv[0] <= 240f &&
-                    hsv[1] >= 0.16f && hsv[2] >= 0.24f
-                val blueRgb = b > 105 && b > r * 1.22f && b > g * 1.03f
-                if (blueHsv || blueRgb) {
-                    ys.add(y)
-                }
+
+                val blueHsv = hsv[0] >= 185f && hsv[0] <= 245f &&
+                    hsv[1] >= 0.28f && hsv[2] >= 0.30f
+                val blueRgb = b > 110 && b > r * 1.35f && b > g * 1.08f
+
+                if (blueHsv || blueRgb) minY = y
                 y += 2
             }
-            if (ys.isNotEmpty()) {
-                ys.sort()
-                points.add(x to ys[ys.size / 2].toFloat())
-            }
+            if (minY != Int.MAX_VALUE) points.add(x to minY.toFloat())
         }
 
-        if (points.size < 12) return null
+        if (points.size < 18) return null
 
-        // Return the most recent visible point, not the median of the tail.
-        // The previous implementation collapsed the recent line into one median,
-        // which could make a moving chart appear almost static.
-        return points.takeLast(minOf(5, points.size))
-            .map { it.second }
-            .average()
+        // Reject isolated blue UI/text pixels by requiring local continuity.
+        val continuous = ArrayList<Float>(points.size)
+        var previous = Float.NaN
+        for ((_, y) in points) {
+            if (previous.isNaN() || kotlin.math.abs(y - previous) <= h * 0.10f) {
+                continuous.add(y)
+                previous = y
+            }
+        }
+        if (continuous.size < 12) return null
+
+        // Only the newest part of the price line drives momentum.
+        return continuous.takeLast(minOf(8, continuous.size)).average()
     }
 }
 """, encoding="utf-8")
@@ -170,7 +175,7 @@ quick_marker = """    private fun updateQuick5s(
 line_engine = """    private fun updateQuickLine5s(priceY: Double) {
         val now = System.currentTimeMillis()
         lineSamples.addLast(now to priceY)
-        while (lineSamples.isNotEmpty() && now - lineSamples.first().first > 2500L) {
+        while (lineSamples.isNotEmpty() && now - lineSamples.first().first > 2200L) {
             lineSamples.removeFirst()
         }
 
@@ -195,55 +200,83 @@ line_engine = """    private fun updateQuickLine5s(priceY: Double) {
             }
         }
 
-        // Do not hold momentum at 0 while the line detector is already seeing
-        // the chart. Start scoring as soon as two samples exist.
-        if (lineSamples.size < 2) {
-            sendQuickStatus("NO TRADE", 55, lineSamples.size, "LINE DETECTED • SCANNING")
+        if (lineSamples.size < 5) {
+            sendQuickStatus("NO TRADE", 0, lineSamples.size, "LINE DETECTED • WARMING")
             return
         }
 
-        val first = lineSamples.first().second
-        val last = lineSamples.last().second
+        val values = lineSamples.map { it.second }
+        val first = values.first()
+        val last = values.last()
         val delta = first - last
-        val movement = kotlin.math.abs(delta)
 
+        // Ignore sub-pixel jitter. Direction must agree across most observed
+        // moves before a 90% signal is allowed.
         var up = 0
         var down = 0
         var previous = first
-        for ((_, y) in lineSamples.drop(1)) {
+        for (y in values.drop(1)) {
             val d = previous - y
-            if (d > 0.35) up++
-            else if (d < -0.35) down++
+            if (d > 2.0) up++
+            else if (d < -2.0) down++
             previous = y
         }
 
-        val totalMoves = (up + down).coerceAtLeast(1)
-        val agreement = maxOf(up, down).toDouble() / totalMoves.toDouble()
+        val directionalMoves = up + down
+        if (directionalMoves < 5) {
+            val scanScore = (55 + kotlin.math.abs(delta).coerceAtMost(15.0)).roundToInt()
+            sendQuickStatus("NO TRADE", scanScore.coerceIn(0, 89), lineSamples.size,
+                "LINE DETECTED • SCANNING")
+            return
+        }
 
-        // Show live momentum while scanning instead of always displaying 0%.
-        // The signal gate is exactly the displayed momentum: 90%+ = immediate signal.
-        // Do not add a second hidden movement/agreement gate after showing 90%.
-        val momentum = (55.0 +
-            agreement * 25.0 +
-            movement.coerceAtMost(20.0) * 1.0)
-            .roundToInt().coerceIn(0, 99)
+        val agreement = maxOf(up, down).toDouble() / directionalMoves.toDouble()
+        val movement = kotlin.math.abs(delta)
 
-        if (momentum >= 90) {
-            val direction = if (delta > 0) "CALL" else "PUT"
-            val strength = momentum.coerceAtLeast(90)
+        val movementScore = when {
+            movement >= 55.0 -> 45
+            movement >= 40.0 -> 38
+            movement >= 30.0 -> 32
+            movement >= 22.0 -> 26
+            movement >= 16.0 -> 20
+            movement >= 12.0 -> 14
+            else -> 8
+        }
+        val agreementScore = when {
+            agreement >= 0.92 -> 45
+            agreement >= 0.85 -> 40
+            agreement >= 0.78 -> 34
+            agreement >= 0.72 -> 27
+            agreement >= 0.66 -> 20
+            else -> 10
+        }
 
-            lineSignalDirection = direction
+        val momentum = (movementScore + agreementScore).coerceIn(0, 99)
+        val strongDirection = if (up > down) "CALL" else "PUT"
+
+        // Both meaningful movement and strong directional agreement are
+        // mandatory. This removes the previous false-90% behavior.
+        val strong = movement >= 22.0 && agreement >= 0.78 && momentum >= 90
+
+        if (strong) {
+            lineSignalDirection = strongDirection
             lineSignalEntryY = priceY
             lineSignalUntilMs = now + 5000L
             lineLastSignalMs = now
 
-            sendQuickStatus(direction, strength, lineSamples.size, "5S DEMO SIGNAL • LOCK 5 SEC")
+            sendQuickStatus(
+                strongDirection, momentum, lineSamples.size,
+                "5S DEMO SIGNAL • LOCK 5 SEC"
+            )
         } else {
-            sendQuickStatus("NO TRADE", momentum, lineSamples.size, "LINE DETECTED • SCANNING")
+            sendQuickStatus(
+                "NO TRADE", momentum.coerceAtMost(89), lineSamples.size,
+                "LINE DETECTED • SCANNING"
+            )
         }
     }
 
-"""
+"""""
 if quick_marker not in c:
     raise SystemExit("quick function marker not found")
 c = c.replace(quick_marker, line_engine + quick_marker, 1)
