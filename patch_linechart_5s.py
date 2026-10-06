@@ -26,14 +26,14 @@ object LineChartAnalyzer {
         if (w < 300 || h < 500) return null
 
         val left = (w * 0.01f).roundToInt().coerceAtLeast(0)
-        val right = (w * 0.56f).roundToInt().coerceAtMost(w - 1)
-        val top = (h * 0.16f).roundToInt().coerceAtLeast(0)
+        val right = (w * 0.70f).roundToInt().coerceAtMost(w - 1)
+        val top = (h * 0.15f).roundToInt().coerceAtLeast(0)
         val bottom = (h * 0.70f).roundToInt().coerceAtMost(h - 1)
-        if (right - left < 80 || bottom - top < 100) return null
+        if (right - left < 100 || bottom - top < 100) return null
 
-        val perColumn = ArrayList<Float>(90)
-        val startX = (right - 120).coerceAtLeast(left)
-        val endX = (right - 12).coerceAtLeast(startX + 1)
+        val points = ArrayList<Pair<Int, Float>>(180)
+        val startX = (w * 0.02f).roundToInt().coerceAtLeast(left)
+        val endX = (right - 8).coerceAtLeast(startX + 1)
         val hsv = FloatArray(3)
 
         for (x in startX..endX) {
@@ -42,20 +42,25 @@ object LineChartAnalyzer {
             while (y <= bottom) {
                 Color.colorToHSV(bitmap.getPixel(x, y), hsv)
                 if (hsv[0] >= 180f && hsv[0] <= 235f &&
-                    hsv[1] >= 0.22f && hsv[2] >= 0.30f) {
+                    hsv[1] >= 0.20f && hsv[2] >= 0.28f) {
                     ys.add(y)
                 }
                 y += 2
             }
             if (ys.isNotEmpty()) {
                 ys.sort()
-                perColumn.add(ys[ys.size / 2].toFloat())
+                points.add(x to ys[ys.size / 2].toFloat())
             }
         }
 
-        if (perColumn.size < 12) return null
-        val tail = perColumn.takeLast(minOf(30, perColumn.size)).sorted()
-        return tail[tail.size / 2].toDouble()
+        if (points.size < 12) return null
+
+        // Return the most recent visible point, not the median of the tail.
+        // The previous implementation collapsed the recent line into one median,
+        // which could make a moving chart appear almost static.
+        return points.takeLast(minOf(5, points.size))
+            .map { it.second }
+            .average()
     }
 }
 """, encoding="utf-8")
