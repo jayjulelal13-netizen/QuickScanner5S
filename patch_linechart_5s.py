@@ -195,8 +195,10 @@ line_engine = """    private fun updateQuickLine5s(priceY: Double) {
             }
         }
 
-        if (now - lineLastSignalMs < 500L || lineSamples.size < 4) {
-            sendQuickStatus("NO TRADE", 0, lineSamples.size, "LINE DETECTED • SCANNING")
+        // Do not hold momentum at 0 while the line detector is already seeing
+        // the chart. Start scoring as soon as two samples exist.
+        if (lineSamples.size < 2) {
+            sendQuickStatus("NO TRADE", 55, lineSamples.size, "LINE DETECTED • SCANNING")
             return
         }
 
