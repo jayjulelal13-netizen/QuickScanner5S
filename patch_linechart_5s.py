@@ -58,7 +58,7 @@ object LineChartAnalyzer {
         // price is the TOP EDGE of that area, never the average of all blue
         // pixels (the old average produced fake momentum).
         val left = (w * 0.03f).roundToInt().coerceAtLeast(0)
-        val right = (w * 0.58f).roundToInt().coerceAtMost(w - 1)
+        val right = (w * 0.80f).roundToInt().coerceAtMost(w - 1)
         val top = (h * 0.17f).roundToInt().coerceAtLeast(0)
         val bottom = (h * 0.64f).roundToInt().coerceAtMost(h - 1)
         if (right - left < 120 || bottom - top < 120) return null
