@@ -21,6 +21,12 @@ if not main.exists():
 m = main.read_text(encoding="utf-8")
 m = m.replace('selectedTimeframe != "5S"', 'selectedTimeframe != "5S QUICK"')
 m = m.replace('selectedTimeframe == "5S"', 'selectedTimeframe == "5S QUICK"')
+# 5S QUICK must be broker-timeframe independent. The scanner samples the
+# visible line every ~200 ms and derives a 5-second demo window from movement;
+# it must not force the broker UI to 1M.
+m = m.replace('if (selectedTimeframe == "5S QUICK") "1M" else selectedTimeframe',
+              'selectedTimeframe')
+
 m = m.replace('                "5S" -> "Chart stays on 1M for 5S QUICK"', '                "5S QUICK" -> "Chart stays on 1M for 5S QUICK"')
 m = m.replace('                "5S" -> "Selected: 5S QUICK (Chart: 1M)"', '                "5S QUICK" -> "Selected: 5S QUICK (Chart: 1M)"')
 main.write_text(m, encoding="utf-8")
