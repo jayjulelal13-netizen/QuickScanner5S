@@ -12,6 +12,20 @@ overlay = src / "OverlayService.kt"
 if not cap.exists() or not overlay.exists():
     raise SystemExit(f"Expected screener sources missing: {src}")
 
+# The UI label is "5S QUICK" while the older source compared against the
+# internal token "5S". That mismatch left quickMode=false, so the line-chart
+# engine was never reached. Normalize all MainActivity quick-mode checks here.
+main = src / "MainActivity.kt"
+if not main.exists():
+    raise SystemExit(f"Expected MainActivity missing: {main}")
+m = main.read_text(encoding="utf-8")
+m = m.replace('selectedTimeframe != "5S"', 'selectedTimeframe != "5S QUICK"')
+m = m.replace('selectedTimeframe == "5S"', 'selectedTimeframe == "5S QUICK"')
+m = m.replace('                "5S" -> "Chart stays on 1M for 5S QUICK"', '                "5S QUICK" -> "Chart stays on 1M for 5S QUICK"')
+m = m.replace('                "5S" -> "Selected: 5S QUICK (Chart: 1M)"', '                "5S QUICK" -> "Selected: 5S QUICK (Chart: 1M)"')
+main.write_text(m, encoding="utf-8")
+print("5S QUICK activation token fixed")
+
 line = src / "LineChartAnalyzer.kt"
 line.write_text(r"""package com.example.screener
 
