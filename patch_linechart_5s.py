@@ -232,17 +232,17 @@ if analysis_marker not in o:
 o = o.replace(analysis_marker, quick_case + analysis_marker, 1)
 
 old_return = """        return "5S SCANNER\n" +
-            "CONFIDENCE: \${shownConfidence}%\n" +
-            "CANDLES: \$candleCount\n" +
-            "STATUS: \$shownStatus\n" +
-            "RESULT: \$resultText"
+            "CONFIDENCE: ${shownConfidence}%\n" +
+            "CANDLES: $candleCount\n" +
+            "STATUS: $shownStatus\n" +
+            "RESULT: $resultText"
 """
 new_return = """        return "5S QUICK\n" +
             "CHART: LINE\n" +
-            "SIGNAL: \${if (signalLocked) nextSignal else "NO TRADE"}\n" +
-            "MOMENTUM: \${shownConfidence}%\n" +
-            "STATUS: \${if (signalLocked) "LOCKED 5 SEC" else status}\n" +
-            "RESULT: \$resultText"
+            "SIGNAL: ${if (signalLocked) nextSignal else "NO TRADE"}\n" +
+            "MOMENTUM: ${shownConfidence}%\n" +
+            "STATUS: ${if (signalLocked) "LOCKED 5 SEC" else status}\n" +
+            "RESULT: $resultText"
 """
 if old_return not in o:
     raise SystemExit("overlay text block not found")
