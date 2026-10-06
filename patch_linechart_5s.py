@@ -40,9 +40,15 @@ object LineChartAnalyzer {
             val ys = ArrayList<Int>(12)
             var y = top
             while (y <= bottom) {
-                Color.colorToHSV(bitmap.getPixel(x, y), hsv)
-                if (hsv[0] >= 180f && hsv[0] <= 235f &&
-                    hsv[1] >= 0.20f && hsv[2] >= 0.28f) {
+                val pixel = bitmap.getPixel(x, y)
+                Color.colorToHSV(pixel, hsv)
+                val r = Color.red(pixel)
+                val g = Color.green(pixel)
+                val b = Color.blue(pixel)
+                val blueHsv = hsv[0] >= 175f && hsv[0] <= 240f &&
+                    hsv[1] >= 0.16f && hsv[2] >= 0.24f
+                val blueRgb = b > 105 && b > r * 1.22f && b > g * 1.03f
+                if (blueHsv || blueRgb) {
                     ys.add(y)
                 }
                 y += 2
@@ -155,13 +161,13 @@ line_engine = """    private fun updateQuickLine5s(priceY: Double) {
                 lineSignalUntilMs = 0L
                 lineLastSignalMs = now
             } else {
-                sendQuickStatus(lineSignalDirection, 0, 0, "5S SIGNAL LOCKED")
+                sendQuickStatus(lineSignalDirection, 0, lineSamples.size, "5S SIGNAL LOCKED")
                 return
             }
         }
 
         if (now - lineLastSignalMs < 1000L || lineSamples.size < 6) {
-            sendQuickStatus("NO TRADE", 0, 0, "SCANNING LINE CHART")
+            sendQuickStatus("NO TRADE", 0, lineSamples.size, "LINE DETECTED • SCANNING")
             return
         }
 
@@ -194,7 +200,7 @@ line_engine = """    private fun updateQuickLine5s(priceY: Double) {
             lineSignalUntilMs = now + 5000L
             lineLastSignalMs = now
 
-            sendQuickStatus(direction, strength, 0, "5S DEMO SIGNAL • LOCK 5 SEC")
+            sendQuickStatus(direction, strength, lineSamples.size, "5S DEMO SIGNAL • LOCK 5 SEC")
         } else {
             sendQuickStatus("NO TRADE", 0, 0, "SCANNING LINE CHART")
         }
