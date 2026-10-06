@@ -68,7 +68,6 @@ jobs:
           python3 patch_v23_activity.py
           python3 patch_linechart_5s.py
           python3 patch_chart_gate.py
-          python3 patch_chart_gate_v2.py
           echo "Line-chart 5S demo patch completed; proceeding to clean release build"
           grep -n "applicationId" "$PROJECT_DIR/app/build.gradle.kts"
           grep -nE "val top|val bottom|chartRight|minDistance|halfWindow" "$PROJECT_DIR/app/src/main/java/com/example/screener/CandleAnalyzer.kt"
