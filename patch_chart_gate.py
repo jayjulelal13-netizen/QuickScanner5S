@@ -9,10 +9,16 @@ for target in targets:
     s = target.read_text(encoding="utf-8")
     before = s
 
+    # Ensure all quick-state properties exist at class scope, immediately after quickMode.
     if "private var quickChartPresent" not in s:
         s = s.replace(
-            'private var quickSignal = "NO TRADE"',
-            'private var quickChartPresent = false\n\n    private var quickSignal = "NO TRADE"',
+            "    private var quickMode = false",
+            """    private var quickMode = false
+    private var quickChartPresent = false
+    private var quickSignal = "NO TRADE"
+    private var quickProbability = 0
+    private var quickSamples = 0
+    private var quickStatus = "WAITING"""",
             1
         )
 
