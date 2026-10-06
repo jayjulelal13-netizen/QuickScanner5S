@@ -219,14 +219,14 @@ line_engine = """    private fun updateQuickLine5s(priceY: Double) {
         val agreement = maxOf(up, down).toDouble() / totalMoves.toDouble()
 
         // Show live momentum while scanning instead of always displaying 0%.
-        // The signal gate is intentionally tied to the displayed momentum: 90%+ with real movement = immediate signal.
-        // This prevents the UI from showing 90% while silently failing a second hidden agreement gate.
+        // The signal gate is exactly the displayed momentum: 90%+ = immediate signal.
+        // Do not add a second hidden movement/agreement gate after showing 90%.
         val momentum = (55.0 +
             agreement * 25.0 +
             movement.coerceAtMost(20.0) * 1.0)
             .roundToInt().coerceIn(0, 99)
 
-        if (movement >= 0.50 && momentum >= 90) {
+        if (momentum >= 90) {
             val direction = if (delta > 0) "CALL" else "PUT"
             val strength = momentum.coerceAtLeast(90)
 
