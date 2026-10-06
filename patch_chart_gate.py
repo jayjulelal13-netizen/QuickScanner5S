@@ -35,12 +35,12 @@ for target in targets:
 
     # A chart is present only after the engine reports actual detected candles.
     old = '''if (intent.hasExtra("count")) {\n                candleCount = intent.getIntExtra("count", candleCount)\n            }'''
-    new = '''if (intent.hasExtra("count")) {\n                candleCount = intent.getIntExtra("count", candleCount)\n                if (intent.getStringExtra("status") == "CANDLES_DETECTED") {\n                    quickChartPresent = candleCount > 0\n                    if (!quickChartPresent) {\n                        quickSignal = "NO TRADE"\n                        quickProbability = 0\n                        quickSamples = 0\n                        quickStatus = "NO CHART / WAITING"\n                        signalLocked = false\n                    }\n                }\n            }'''
+    new = '''if (intent.hasExtra("count")) {\n                candleCount = intent.getIntExtra("count", candleCount)\n                if (intent.getStringExtra("status") == "CANDLES_DETECTED" && !quickMode) {\n                    quickChartPresent = candleCount > 0\n                    if (!quickChartPresent) {\n                        quickSignal = "NO TRADE"\n                        quickProbability = 0\n                        quickSamples = 0\n                        quickStatus = "NO CHART / WAITING"\n                        signalLocked = false\n                    }\n                }\n            }'''
     s = s.replace(old, new, 1)
 
     # Never resurrect a stale 5S signal while the chart gate is closed.
     old = '''"QUICK_5S" -> {\n                    quickMode = true\n                    quickSignal ='''
-    new = '''"QUICK_5S" -> {\n                    quickMode = true\n                    if (!quickChartPresent) {\n                        quickSignal = "NO TRADE"\n                        quickProbability = 0\n                        quickSamples = 0\n                        quickStatus = "NO CHART / WAITING"\n                        signalLocked = false\n                        updateOverlay()\n                        return\n                    }\n                    quickSignal ='''
+    new = '''"QUICK_5S" -> {\n                    quickMode = true\n                    val lineSamples = intent.getIntExtra("quickSamples", 0)\n                    if (lineSamples > 0) quickChartPresent = true\n                    if (!quickChartPresent) {\n                        quickSignal = "NO TRADE"\n                        quickProbability = 0\n                        quickSamples = 0\n                        quickStatus = "NO CHART / WAITING"\n                        signalLocked = false\n                        updateOverlay()\n                        return\n                    }\n                    quickSignal ='''
     s = s.replace(old, new, 1)
 
     # Guard 5S ANALYSIS_READY as well.
