@@ -210,19 +210,24 @@ line_engine = """    private fun updateQuickLine5s(priceY: Double) {
         var previous = first
         for ((_, y) in lineSamples.drop(1)) {
             val d = previous - y
-            if (d > 0.8) up++
-            else if (d < -0.8) down++
+            if (d > 0.35) up++
+            else if (d < -0.35) down++
             previous = y
         }
 
         val totalMoves = (up + down).coerceAtLeast(1)
         val agreement = maxOf(up, down).toDouble() / totalMoves.toDouble()
 
-        if (movement >= 1.2 && agreement >= 0.55) {
+        // Show live momentum while scanning instead of always displaying 0%.
+        // The signal gate remains strict: CALL/PUT is emitted only at >=90.
+        val momentum = (55.0 +
+            agreement * 25.0 +
+            movement.coerceAtMost(20.0) * 1.0)
+            .roundToInt().coerceIn(0, 99)
+
+        if (movement >= 0.50 && agreement >= 0.62 && momentum >= 90) {
             val direction = if (delta > 0) "CALL" else "PUT"
-            val strength = (50.0 + agreement * 35.0 +
-                movement.coerceAtMost(30.0) * 0.5)
-                .roundToInt().coerceIn(50, 99)
+            val strength = momentum.coerceAtLeast(90)
 
             lineSignalDirection = direction
             lineSignalEntryY = priceY
@@ -231,7 +236,7 @@ line_engine = """    private fun updateQuickLine5s(priceY: Double) {
 
             sendQuickStatus(direction, strength, lineSamples.size, "5S DEMO SIGNAL • LOCK 5 SEC")
         } else {
-            sendQuickStatus("NO TRADE", 0, lineSamples.size, "LINE DETECTED • SCANNING")
+            sendQuickStatus("NO TRADE", momentum, lineSamples.size, "LINE DETECTED • SCANNING")
         }
     }
 
