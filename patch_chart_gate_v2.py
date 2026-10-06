@@ -22,7 +22,7 @@ for target in files:
         if anchor in s:
             s = s.replace(anchor, anchor + "\n    private var quickChartPresent = false", 1)
         else:
-            anchor = "private var quickSignal = "NO TRADE""
+            anchor = 'private var quickSignal = "NO TRADE"'
             if anchor in s:
                 s = s.replace(anchor, "private var quickChartPresent = false\n\n    " + anchor, 1)
             else:
