@@ -231,21 +231,28 @@ if analysis_marker not in o:
     raise SystemExit("overlay analysis marker not found")
 o = o.replace(analysis_marker, quick_case + analysis_marker, 1)
 
-old_return = """        return "5S SCANNER\n" +
-            "CONFIDENCE: ${shownConfidence}%\n" +
-            "CANDLES: $candleCount\n" +
-            "STATUS: $shownStatus\n" +
-            "RESULT: $resultText"
-"""
-new_return = """        return "5S QUICK\n" +
+# Replace the overlay text function after V23, whose exact body can vary.
+import re
+overlay_block = re.compile(r'(?s)(private fun buildOverlayText\(\): String \{).*?(\n    private fun formatPrice)', re.MULTILINE)
+replacement_body = r'''\1
+        val shownConfidence = when {
+            activeTrade -> activeConfidence
+            signalLocked -> nextConfidence
+            else -> nextConfidence
+        }
+        val resultText = if (recentResults.isEmpty()) "-" else {
+            val wins = recentResults.count { it == "WIN" }
+            "$wins/${recentResults.size}"
+        }
+        return "5S QUICK\n" +
             "CHART: LINE\n" +
             "SIGNAL: ${if (signalLocked) nextSignal else "NO TRADE"}\n" +
             "MOMENTUM: ${shownConfidence}%\n" +
             "STATUS: ${if (signalLocked) "LOCKED 5 SEC" else status}\n" +
             "RESULT: $resultText"
-"""
-if old_return not in o:
-    raise SystemExit("overlay text block not found")
-o = o.replace(old_return, new_return, 1)
+    }\2'''
+if not overlay_block.search(o):
+    raise SystemExit("buildOverlayText function not found after earlier patches")
+o = overlay_block.sub(replacement_body, o, count=1)
 overlay.write_text(o, encoding="utf-8")
 print("Line-chart 5S demo patch applied")
