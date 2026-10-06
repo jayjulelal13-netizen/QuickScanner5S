@@ -242,13 +242,13 @@ replacement_body = r'''\1
         }
         val resultText = if (recentResults.isEmpty()) "-" else {
             val wins = recentResults.count { it == "WIN" }
-            "$wins/${recentResults.size}"
+            "${wins}/${recentResults.size}"
         }
-        return "5S QUICK\n" +
-            "CHART: LINE\n" +
-            "SIGNAL: ${if (signalLocked) nextSignal else "NO TRADE"}\n" +
-            "MOMENTUM: ${shownConfidence}%\n" +
-            "STATUS: ${if (signalLocked) "LOCKED 5 SEC" else status}\n" +
+        return "5S QUICK\\n" +
+            "CHART: LINE\\n" +
+            "SIGNAL: ${if (signalLocked) nextSignal else "NO TRADE"}\\n" +
+            "MOMENTUM: ${shownConfidence}%\\n" +
+            "STATUS: ${if (signalLocked) "LOCKED 5 SEC" else status}\\n" +
             "RESULT: $resultText"
     }\2'''
 if not overlay_block.search(o):
