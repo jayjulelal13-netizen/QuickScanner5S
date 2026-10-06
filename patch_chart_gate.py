@@ -40,7 +40,10 @@ for target in targets:
 
     # Never resurrect a stale 5S signal while the chart gate is closed.
     old = '''"QUICK_5S" -> {\n                    quickMode = true\n                    quickSignal ='''
-    new = '''"QUICK_5S" -> {\n                    quickMode = true\n                    val lineSamples = intent.getIntExtra("quickSamples", 0)\n                    if (lineSamples > 0) quickChartPresent = true\n                    if (!quickChartPresent) {\n                        quickSignal = "NO TRADE"\n                        quickProbability = 0\n                        quickSamples = 0\n                        quickStatus = "NO CHART / WAITING"\n                        signalLocked = false\n                        updateOverlay()\n                        return\n                    }\n                    quickSignal ='''
+    new = '''"QUICK_5S" -> {\n                    quickMode = true\n                    val lineSamples = intent.getIntExtra("quickSamples", 0)\n                    if (lineSamples > 0) {
+                        quickChartPresent = true
+                        quickLastLineSeenMs = System.currentTimeMillis()
+                    }\n                    if (!quickChartPresent) {\n                        quickSignal = "NO TRADE"\n                        quickProbability = 0\n                        quickSamples = 0\n                        quickStatus = "NO CHART / WAITING"\n                        signalLocked = false\n                        updateOverlay()\n                        return\n                    }\n                    quickSignal ='''
     s = s.replace(old, new, 1)
 
     # Guard 5S ANALYSIS_READY as well.
