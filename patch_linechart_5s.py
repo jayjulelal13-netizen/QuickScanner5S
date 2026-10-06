@@ -153,7 +153,7 @@ line_engine = """    private fun updateQuickLine5s(priceY: Double) {
                     priceY > lineSignalEntryY
                 }
                 sendQuickStatus(
-                    "NO TRADE", 0, 0,
+                    "NO TRADE", 0, lineSamples.size,
                     if (win) "5S DEMO RESULT: WIN" else "5S DEMO RESULT: LOSS"
                 )
                 lineSignalDirection = "NONE"
@@ -166,7 +166,7 @@ line_engine = """    private fun updateQuickLine5s(priceY: Double) {
             }
         }
 
-        if (now - lineLastSignalMs < 1000L || lineSamples.size < 6) {
+        if (now - lineLastSignalMs < 500L || lineSamples.size < 4) {
             sendQuickStatus("NO TRADE", 0, lineSamples.size, "LINE DETECTED • SCANNING")
             return
         }
@@ -189,7 +189,7 @@ line_engine = """    private fun updateQuickLine5s(priceY: Double) {
         val totalMoves = (up + down).coerceAtLeast(1)
         val agreement = maxOf(up, down).toDouble() / totalMoves.toDouble()
 
-        if (movement >= 6.0 && agreement >= 0.65) {
+        if (movement >= 1.2 && agreement >= 0.55) {
             val direction = if (delta > 0) "CALL" else "PUT"
             val strength = (50.0 + agreement * 35.0 +
                 movement.coerceAtMost(30.0) * 0.5)
@@ -202,7 +202,7 @@ line_engine = """    private fun updateQuickLine5s(priceY: Double) {
 
             sendQuickStatus(direction, strength, lineSamples.size, "5S DEMO SIGNAL • LOCK 5 SEC")
         } else {
-            sendQuickStatus("NO TRADE", 0, 0, "SCANNING LINE CHART")
+            sendQuickStatus("NO TRADE", 0, lineSamples.size, "LINE DETECTED • SCANNING")
         }
     }
 
@@ -227,6 +227,12 @@ quick_case = """                "QUICK_5S" -> {
                         nextConfidence = strength
                         nextTrend = "LINE MOMENTUM"
                         signalLocked = true
+                        status = quickStatus
+                    } else if (quickStatus.contains("RESULT")) {
+                        signalLocked = false
+                        nextSignal = "NO TRADE"
+                        nextConfidence = 0
+                        nextTrend = "LINE MOMENTUM"
                         status = quickStatus
                     } else if (!signalLocked) {
                         nextSignal = "NO TRADE"
