@@ -26,11 +26,11 @@ for target in targets:
 
     # Every explicit no-chart state must wipe the complete quick state.
     old = '''"CHART_NOT_DETECTED" -> {\n                    nextSignal = "NO TRADE"'''
-    new = '''"CHART_NOT_DETECTED" -> {\n                    quickChartPresent = false\n                    quickSignal = "NO TRADE"\n                    quickProbability = 0\n                    quickSamples = 0\n                    quickStatus = "NO CHART / WAITING"\n                    nextSignal = "NO TRADE"'''
+    new = '''"CHART_NOT_DETECTED" -> {\n                    if (quickMode) {\n                        updateOverlay()\n                        return\n                    }\n                    quickChartPresent = false\n                    quickSignal = "NO TRADE"\n                    quickProbability = 0\n                    quickSamples = 0\n                    quickStatus = "NO CHART / WAITING"\n                    nextSignal = "NO TRADE"'''
     s = s.replace(old, new, 1)
 
     old = '''if (!quickMode && (intent.getStringExtra("status") == "NO_CHART_WAITING" ||\n                        intent.getStringExtra("status") == "CANDLE_DETECTION_WAITING" ||\n                        intent.getStringExtra("status") == "HISTORY_WAITING")) {\n                        nextSignal = "NO TRADE"'''
-    new = '''if (intent.getStringExtra("status") == "NO_CHART_WAITING" ||\n                        intent.getStringExtra("status") == "CANDLE_DETECTION_WAITING" ||\n                        intent.getStringExtra("status") == "HISTORY_WAITING") {\n                        quickChartPresent = false\n                        quickSignal = "NO TRADE"\n                        quickProbability = 0\n                        quickSamples = 0\n                        quickStatus = "NO CHART / WAITING"\n                        nextSignal = "NO TRADE"'''
+    new = '''if (!quickMode && (intent.getStringExtra("status") == "NO_CHART_WAITING" ||\n                        intent.getStringExtra("status") == "CANDLE_DETECTION_WAITING" ||\n                        intent.getStringExtra("status") == "HISTORY_WAITING")) {\n                        quickChartPresent = false\n                        quickSignal = "NO TRADE"\n                        quickProbability = 0\n                        quickSamples = 0\n                        quickStatus = "NO CHART / WAITING"\n                        nextSignal = "NO TRADE"'''
     s = s.replace(old, new, 1)
 
     # A chart is present only after the engine reports actual detected candles.
