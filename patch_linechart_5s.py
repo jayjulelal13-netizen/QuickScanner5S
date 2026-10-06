@@ -320,6 +320,39 @@ if analysis_marker not in o:
     raise SystemExit("overlay analysis marker not found")
 o = o.replace(analysis_marker, quick_case + analysis_marker, 1)
 
+# 5S QUICK LINE mode is authoritative. Ignore normal candle/status updates
+# so LIVE_ANALYSIS confidence cannot overwrite the line momentum.
+generic_marker = """                "PROJECTION_STARTING", "IMAGE_READER_CREATED", "VIRTUAL_DISPLAY_CREATED",
+                "FRAME_READY", "CANDLES_DETECTED", "CANDLE_DETECTION_WAITING", "HISTORY_WAITING",
+                "LIVE_ANALYSIS", "CANDLE_RUNNING", "CANDLE_WAITING", "WAITING_NEW_CANDLE",
+                "RESULT_WAITING_CANDLE_CONFIRMATION", "ANALYSIS_ERROR", "FRAME_ERROR" -> {"""
+generic_replacement = """                "PROJECTION_STARTING", "IMAGE_READER_CREATED", "VIRTUAL_DISPLAY_CREATED",
+                "FRAME_READY", "CANDLES_DETECTED", "CANDLE_DETECTION_WAITING", "HISTORY_WAITING",
+                "LIVE_ANALYSIS", "CANDLE_RUNNING", "CANDLE_WAITING", "WAITING_NEW_CANDLE",
+                "RESULT_WAITING_CANDLE_CONFIRMATION", "ANALYSIS_ERROR", "FRAME_ERROR" -> {
+                    if (quickMode) return"""
+if generic_marker not in o:
+    raise SystemExit("generic overlay status marker not found")
+o = o.replace(generic_marker, generic_replacement, 1)
+
+trade_marker = """                "TRADE_ENTRY" -> {
+                    val signal ="""
+trade_replacement = """                "TRADE_ENTRY" -> {
+                    if (quickMode) return
+                    val signal ="""
+if trade_marker not in o:
+    raise SystemExit("trade marker not found")
+o = o.replace(trade_marker, trade_replacement, 1)
+
+result_marker = """                "RESULT_READY" -> {
+                    lastResult ="""
+result_replacement = """                "RESULT_READY" -> {
+                    if (quickMode) return
+                    lastResult ="""
+if result_marker not in o:
+    raise SystemExit("result marker not found")
+o = o.replace(result_marker, result_replacement, 1)
+
 # Replace the overlay text function after V23, whose exact body can vary.
 import re
 overlay_block = re.compile(r'(?s)(private fun buildOverlayText\(\): String \{).*?(\n    private fun formatPrice)', re.MULTILINE)
