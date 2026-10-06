@@ -32,6 +32,15 @@ m = m.replace('                "5S" -> "Selected: 5S QUICK (Chart: 1M)"', '     
 main.write_text(m, encoding="utf-8")
 print("5S QUICK activation token fixed")
 
+# Binomo 5ST requires the broker chart itself to stay at 1 second.
+# Keep the scanner's internal quick path tied to that real chart timeframe.
+cap_path = src / "CaptureService.kt"
+cap_text = cap_path.read_text(encoding="utf-8")
+cap_text = cap_text.replace('The broker chart\n        // remains on 1M; quickMode observes successive 1M screen frames\n        // and derives the 5-second move from the running candle.', 'Binomo 5ST requires a 1-second broker chart; quickMode observes the\n        // live 1-second screen frames and derives the 5-second demo window.')
+cap_text = cap_text.replace('if (quickMode) {\n            selectedTimeframe = "1M"\n        }', 'if (quickMode) {\n            selectedTimeframe = "1S"\n        }')
+cap_path.write_text(cap_text, encoding="utf-8")
+print("Binomo 5ST 1-second timeframe fixed")
+
 line = src / "LineChartAnalyzer.kt"
 line.write_text(r"""package com.example.screener
 
