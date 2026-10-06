@@ -3,6 +3,7 @@ name: Build QuickScanner5S SAFE RELEASE
 permissions:
   contents: write
 # 5S confidence build fix
+# Chart-gate syntax/class-scope fix
 
 on:
   workflow_dispatch:
