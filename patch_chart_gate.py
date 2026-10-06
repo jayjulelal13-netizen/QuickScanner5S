@@ -29,7 +29,7 @@ for target in targets:
     new = '''"CHART_NOT_DETECTED" -> {\n                    quickChartPresent = false\n                    quickSignal = "NO TRADE"\n                    quickProbability = 0\n                    quickSamples = 0\n                    quickStatus = "NO CHART / WAITING"\n                    nextSignal = "NO TRADE"'''
     s = s.replace(old, new, 1)
 
-    old = '''if (intent.getStringExtra("status") == "NO_CHART_WAITING" ||\n                        intent.getStringExtra("status") == "CANDLE_DETECTION_WAITING" ||\n                        intent.getStringExtra("status") == "HISTORY_WAITING") {\n                        nextSignal = "NO TRADE"'''
+    old = '''if (!quickMode && (intent.getStringExtra("status") == "NO_CHART_WAITING" ||\n                        intent.getStringExtra("status") == "CANDLE_DETECTION_WAITING" ||\n                        intent.getStringExtra("status") == "HISTORY_WAITING")) {\n                        nextSignal = "NO TRADE"'''
     new = '''if (intent.getStringExtra("status") == "NO_CHART_WAITING" ||\n                        intent.getStringExtra("status") == "CANDLE_DETECTION_WAITING" ||\n                        intent.getStringExtra("status") == "HISTORY_WAITING") {\n                        quickChartPresent = false\n                        quickSignal = "NO TRADE"\n                        quickProbability = 0\n                        quickSamples = 0\n                        quickStatus = "NO CHART / WAITING"\n                        nextSignal = "NO TRADE"'''
     s = s.replace(old, new, 1)
 
@@ -44,7 +44,7 @@ for target in targets:
     s = s.replace(old, new, 1)
 
     # Guard 5S ANALYSIS_READY as well.
-    old = '''if (timeframe == "5S") {\n                        quickSignal = if ((signal == "CALL" || signal == "PUT") && confidence >= CONFIDENCE_LEVEL) signal else "NO TRADE"'''
+    old = '''if (quickMode) {\n                        updateOverlay()\n                        return\n                    }\n                    if (timeframe == "5S") {\n                        quickSignal = if ((signal == "CALL" || signal == "PUT") && confidence >= CONFIDENCE_LEVEL) signal else "NO TRADE"'''
     new = '''if (timeframe == "5S") {\n                        if (!quickChartPresent) {\n                            quickSignal = "NO TRADE"\n                            quickProbability = 0\n                            quickSamples = 0\n                            quickStatus = "NO CHART / WAITING"\n                            signalLocked = false\n                            updateOverlay()\n                            return\n                        }\n                        quickSignal = if ((signal == "CALL" || signal == "PUT") && confidence >= CONFIDENCE_LEVEL) signal else "NO TRADE"'''
     s = s.replace(old, new, 1)
 
