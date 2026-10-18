@@ -19,6 +19,30 @@ if start >= 0:
 elif "LineChartAnalyzer.extractPriceY(bitmap)" in s:
     raise SystemExit("Line-chart quick path found but expected block boundaries differ")
 
+# If the visible chart detector finds too few candles, the overlay must show
+# the actual detection failure instead of remaining stuck at generic SCANNING/0%.
+const waitMarker = `        if (detected.size < MIN_HISTORY + 1) {
+            resetWhenChartIsMissing()
+            sendStatus("CANDLE_DETECTION_WAITING")
+            return
+        }`;
+const waitReplacement = `        if (detected.size < MIN_HISTORY + 1) {
+            resetWhenChartIsMissing()
+            if (quickMode) {
+                sendQuickStatus("NO TRADE", 0, detected.size,
+                    "CANDLE DETECTION WAITING (" + detected.size + ")")
+            } else {
+                sendStatus("CANDLE_DETECTION_WAITING")
+            }
+            return
+        }`;
+if (s.includes(waitMarker)) {
+    s = s.replace(waitMarker, waitReplacement, 1)
+} else if (!s.includes('CANDLE DETECTION WAITING (" + detected.size + ")')) {
+    throw new Error("Could not locate low-candle-count gate for diagnostic status")
+}
+cap.write_text(s, encoding="utf-8")
+
 # Ensure the 5S branch receives the actual CandleAnalyzer output, not a line sample.
 if "LineChartAnalyzer.extractPriceY(bitmap)" in s:
     raise SystemExit("5S line-chart interception remains active")
