@@ -69,10 +69,24 @@ jobs:
           python3 patch_v23_activity.py
           python3 patch_linechart_5s.py
           python3 patch_chart_gate.py
-          echo "Line-chart 5S demo patch completed; proceeding to clean release build"
+          python3 patch_v26_pressure_strategy.py
+          echo "5M + 1M trend and completed 5S pressure strategy patch applied"
           grep -n "applicationId" "$PROJECT_DIR/app/build.gradle.kts"
           grep -nE "val top|val bottom|chartRight|minDistance|halfWindow" "$PROJECT_DIR/app/src/main/java/com/example/screener/CandleAnalyzer.kt"
           grep -nE "val probability|WAIT - 90% GATE|quickActivityScore|V21 quick activity" "$PROJECT_DIR/app/src/main/java/com/example/screener/CaptureService.kt"
+          grep -nE "val probability|WAIT - 90% GATE|quickActivityScore|V21 quick activity" "$PROJECT_DIR/app/src/main/java/com/example/screener/CaptureService.kt"
+      - name: Export updated pressure strategy source
+        run: |
+          set -eux
+          rm -rf debug-source/screener
+          cp -r "$PROJECT_DIR/app/src/main/java/com/example/screener" debug-source/
+          git add debug-source
+          if ! git diff --cached --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "[skip ci] Export 5S pressure strategy source"
+            git push
+          fi
       - name: Sanitize Android manifest
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
