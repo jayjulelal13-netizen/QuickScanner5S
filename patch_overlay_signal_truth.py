@@ -15,7 +15,7 @@ for p in files:
     s = s.replace('"CHART: LINE\\n" +', '"CHART: CANDLE DETECTION\\n" +')
     # Reject malformed/low-score signals; retain NO TRADE otherwise.
     s = s.replace('if (signal == "CALL" || signal == "PUT") {',
-                  'if ((signal == "CALL" || signal == "PUT") && strength >= CONFIDENCE_LEVEL && quickStatus.contains("CANDLE", ignoreCase = true)) {', 1)
+                  'if ((signal == "CALL" || signal == "PUT") && strength >= CONFIDENCE_LEVEL && quickSamples > 0 && !quickStatus.contains("WAITING", ignoreCase = true) && !quickStatus.contains("NO LINE", ignoreCase = true)) {', 1)
     # Avoid a misleading 90% display for any locked result.
     s = s.replace('nextConfidence.coerceAtLeast(90)', 'nextConfidence')
     if s != before:
