@@ -8,6 +8,12 @@ changed = 0
 for p in files:
     s = p.read_text(encoding="utf-8")
     before = s
+    if "private var quickDetails" not in s:
+        s = s.replace('    private var quickStatus = "WAITING"\n', '    private var quickStatus = "WAITING"\n    private var quickDetails = "TREND: WAITING\\nPRESSURE: WAITING\\nWICK: WAITING"\n')
+    s = s.replace('val quickStatus = intent.getStringExtra("quickStatus")\n                        ?: "SCANNING LINE CHART"', 'val quickStatus = intent.getStringExtra("quickStatus")\n                        ?: "SCANNING CANDLE CHART"\n                    quickDetails = intent.getStringExtra("quickDetails")\n                        ?: "TREND: WAITING\\nPRESSURE: WAITING\\nWICK: WAITING"')
+    s = s.replace("maxLines = 5", "maxLines = 8")
+    s = s.replace("dp(178),", "dp(225),")
+    s = s.replace('"CHART: CANDLE DETECTION\\n" +\n            "SIGNAL:', '"CHART: CANDLE DETECTION\\n" +\n            "$quickDetails\\n" +\n            "SIGNAL:')
 
     # Never manufacture a 90% value from a weaker score.
     s = s.replace('nextConfidence = strength.coerceAtLeast(90)', 'nextConfidence = strength')
