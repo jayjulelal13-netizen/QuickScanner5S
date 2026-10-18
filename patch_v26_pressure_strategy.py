@@ -153,11 +153,12 @@ replacement = r'''    private fun updateQuick5s(runningCandle: CandleAnalyzer.De
             quickLastSetupBucket = nowBucket
         }
 
-        val probability = if (direction == "CALL" || direction == "PUT") quickHistoricalProbability(direction) else null
-        val samples = if (direction == "CALL" || direction == "PUT") quickHistoricalSampleCount(direction) else 0
+        val samples = quickPressureHistory.size
+        // Setup strength is measured price-action pressure, not a win-rate claim.
+        val setupStrength = ((if (direction == "CALL") bullPressure else bearPressure) * 100.0)
+            .roundToInt().coerceIn(0, 100)
         val canSignal = (direction == "CALL" || direction == "PUT") &&
-            probability != null && probability >= MIN_EMPIRICAL_PROBABILITY &&
-            samples >= MIN_EMPIRICAL_SAMPLES && !cooldown && fresh &&
+            setupStrength >= 58 && !cooldown && fresh &&
             quickSignalDirection == "NONE"
 
         if (canSignal) {
@@ -168,17 +169,16 @@ replacement = r'''    private fun updateQuick5s(runningCandle: CandleAnalyzer.De
             quickLastSignalBucket = nowBucket
             quickLastSetupKey = setupKey
             quickLastSetupBucket = nowBucket
-            sendQuickStatus(direction, probability ?: 0, samples, "5S SIGNAL - DEMO TEST ONLY")
+            sendQuickStatus(direction, setupStrength, samples, "5S SETUP - DEMO ONLY")
         } else {
             val why = when {
                 trend5m == "WAITING" || trend1m == "WAITING" -> "WAIT - TREND HISTORY"
                 trend5m != trend1m -> "NO TRADE - TREND CONFLICT"
                 direction == "NO TRADE" -> "NO TRADE - WEAK 5S PRESSURE"
-                probability == null || samples < MIN_EMPIRICAL_SAMPLES -> "WAIT - EMPIRICAL SAMPLES ($samples/$MIN_EMPIRICAL_SAMPLES)"
                 cooldown || !fresh -> "WAIT - FRESH SETUP"
-                else -> "NO TRADE - 90% GATE"
+                else -> "NO TRADE - SETUP NOT CONFIRMED"
             }
-            sendQuickStatus("NO TRADE", probability ?: 0, samples, why)
+            sendQuickStatus("NO TRADE", setupStrength, samples, why)
         }
     }
 
