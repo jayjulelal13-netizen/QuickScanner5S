@@ -24,6 +24,14 @@ for target in targets:
     state = '''\n    private var quickMode = false\n    private var quickChartPresent = false\n    private var quickSignal = "NO TRADE"\n    private var quickProbability = 0\n    private var quickSamples = 0\n    private var quickStatus = "WAITING"\n'''
     s = s.replace(class_open, class_open + state, 1)
 
+    # CaptureService broadcasts quickMode, but the original overlay ignored it.
+    # Generic FRAME_READY events could therefore overwrite the quick status.
+    old = '''timeframe = intent.getStringExtra("timeframe") ?: timeframe\n\n            if (intent.hasExtra("count")) {'''
+    new = '''timeframe = intent.getStringExtra("timeframe") ?: timeframe\n            if (intent.hasExtra("quickMode")) {\n                quickMode = intent.getBooleanExtra("quickMode", quickMode)\n            }\n\n            if (intent.hasExtra("count")) {'''
+    if old not in s:
+        raise SystemExit("Could not locate receiver timeframe/count boundary")
+    s = s.replace(old, new, 1)
+
     # Every explicit no-chart state must wipe the complete quick state.
     old = '''"CHART_NOT_DETECTED" -> {\n                    nextSignal = "NO TRADE"'''
     new = '''"CHART_NOT_DETECTED" -> {\n                    if (quickMode) {\n                        updateOverlay()\n                        return\n                    }\n                    quickChartPresent = false\n                    quickSignal = "NO TRADE"\n                    quickProbability = 0\n                    quickSamples = 0\n                    quickStatus = "NO CHART / WAITING"\n                    nextSignal = "NO TRADE"'''
