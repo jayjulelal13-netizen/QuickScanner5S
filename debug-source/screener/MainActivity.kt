@@ -179,7 +179,7 @@ class MainActivity : Activity() {
                     "ANALYSIS_READY" -> {
                         // In 5S QUICK mode the service does not need to
                         // surface the normal 1M boundary result.
-                        if (selectedTimeframe != "5S") {
+                        if (selectedTimeframe != "5S QUICK") {
                             handleAnalysis(intent)
                         }
                     }
@@ -670,7 +670,7 @@ class MainActivity : Activity() {
                     "TIMEFRAME SELECTED\n" +
                     "$selectedTimeframe\n\n" +
                     when (selectedTimeframe) {
-                        "5S" -> "Chart stays on 1M for 5S QUICK"
+                        "5S QUICK" -> "Chart stays on 1M for 5S QUICK"
                         "5M" -> "Set Quotex chart to 5M"
                         "15M" -> "Set Quotex chart to 15M"
                         else -> "Set Quotex chart to 1M"
@@ -734,7 +734,7 @@ class MainActivity : Activity() {
         )
 
         button5S.setBackgroundColor(
-            if (selectedTimeframe == "5S")
+            if (selectedTimeframe == "5S QUICK")
                 Color.DKGRAY
             else
                 Color.LTGRAY
@@ -762,7 +762,7 @@ class MainActivity : Activity() {
         )
 
         button5S.setTextColor(
-            if (selectedTimeframe == "5S")
+            if (selectedTimeframe == "5S QUICK")
                 Color.WHITE
             else
                 Color.BLACK
@@ -770,7 +770,7 @@ class MainActivity : Activity() {
 
         selectedText?.text =
             when (selectedTimeframe) {
-                "5S" -> "Selected: 5S QUICK (Chart: 1M)"
+                "5S QUICK" -> "Selected: 5S QUICK (Chart: 1M)"
                 "5M" -> "Selected: 5M"
                 "15M" -> "Selected: 15M"
                 else -> "Selected: 1M"
@@ -868,12 +868,12 @@ class MainActivity : Activity() {
 
             serviceIntent.putExtra(
                 "timeframe",
-                if (selectedTimeframe == "5S") "1M" else selectedTimeframe
+                selectedTimeframe
             )
 
             serviceIntent.putExtra(
                 "quickMode",
-                selectedTimeframe == "5S"
+                selectedTimeframe == "5S QUICK"
             )
 
             if (
@@ -990,7 +990,7 @@ class MainActivity : Activity() {
     private fun handleQuick5s(
         intent: Intent
     ) {
-        if (selectedTimeframe != "5S") return
+        if (selectedTimeframe != "5S QUICK") return
 
         val signal = intent.getStringExtra("quickSignal")
             ?.uppercase() ?: "NO TRADE"

@@ -18,6 +18,13 @@ import java.util.Locale
 import kotlin.math.roundToInt
 
 class OverlayService : Service() {
+    private var quickMode = false
+    private var quickChartPresent = false
+    private var quickSignal = "NO TRADE"
+    private var quickProbability = 0
+    private var quickSamples = 0
+    private var quickStatus = "WAITING"
+
 
     companion object {
         private const val ACTION_FRAME_STATUS = "com.example.screener.FRAME_STATUS"
@@ -56,6 +63,16 @@ class OverlayService : Service() {
 
             if (intent.hasExtra("count")) {
                 candleCount = intent.getIntExtra("count", candleCount)
+                if (intent.getStringExtra("status") == "CANDLES_DETECTED" && !quickMode) {
+                    quickChartPresent = candleCount > 0
+                    if (!quickChartPresent) {
+                        quickSignal = "NO TRADE"
+                        quickProbability = 0
+                        quickSamples = 0
+                        quickStatus = "NO CHART / WAITING"
+                        signalLocked = false
+                    }
+                }
             }
 
             when (intent.getStringExtra("status")) {
@@ -72,6 +89,7 @@ class OverlayService : Service() {
                 "FRAME_READY", "CANDLES_DETECTED", "CANDLE_DETECTION_WAITING", "HISTORY_WAITING",
                 "LIVE_ANALYSIS", "CANDLE_RUNNING", "CANDLE_WAITING", "WAITING_NEW_CANDLE",
                 "RESULT_WAITING_CANDLE_CONFIRMATION", "ANALYSIS_ERROR", "FRAME_ERROR" -> {
+                    if (quickMode) return
                     if (intent.getStringExtra("status") == "LIVE_ANALYSIS" &&
                         !activeTrade && !signalLocked
                     ) {
@@ -80,6 +98,38 @@ class OverlayService : Service() {
                     }
 
                     if (!activeTrade && !signalLocked) status = "SCANNING"
+                    updateOverlay()
+                }
+
+                "QUICK_5S" -> {
+                    val signal = intent.getStringExtra("quickSignal")
+                        ?.uppercase(Locale.US) ?: "NO TRADE"
+                    val strength = intent.getIntExtra("quickProbability", 0)
+                    val quickStatus = intent.getStringExtra("quickStatus")
+                        ?: "SCANNING LINE CHART"
+
+                    // QUICK_5S is the authoritative 5S LINE result.
+                    // Never let a NO-TRADE branch hide a valid 90%+ signal.
+                    if (signal == "CALL" || signal == "PUT") {
+                        activeTrade = false
+                        activeConfidence = 0
+                        nextSignal = signal
+                        nextConfidence = strength.coerceAtLeast(90)
+                        nextTrend = "LINE MOMENTUM"
+                        signalLocked = true
+                        status = quickStatus
+                    } else {
+                        // A non-signal QUICK_5S event must NEVER display its
+                        // raw strength as momentum. Clear all stale trade
+                        // state so 90% can only appear with CALL/PUT locked.
+                        activeTrade = false
+                        activeConfidence = 0
+                        signalLocked = false
+                        nextSignal = "NO TRADE"
+                        nextConfidence = 0
+                        nextTrend = "LINE MOMENTUM"
+                        status = quickStatus
+                    }
                     updateOverlay()
                 }
 
@@ -105,6 +155,7 @@ class OverlayService : Service() {
                 }
 
                 "TRADE_ENTRY" -> {
+                    if (quickMode) return
                     val signal = intent.getStringExtra("signal")?.uppercase(Locale.US) ?: "NO TRADE"
                     if (signal != "CALL" && signal != "PUT") return
 
@@ -123,6 +174,7 @@ class OverlayService : Service() {
                 }
 
                 "RESULT_READY" -> {
+                    if (quickMode) return
                     lastResult = intent.getStringExtra("result")?.uppercase(Locale.US) ?: "DRAW"
                     lastEntry = intent.getDoubleExtra("entryPrice", lastEntry)
                     lastExit = intent.getDoubleExtra("exitPrice", Double.NaN)
@@ -241,35 +293,30 @@ class OverlayService : Service() {
         (value * resources.displayMetrics.density).roundToInt()
 
     private fun buildOverlayText(): String {
-        val shownConfidence = when {
-            activeTrade -> activeConfidence
-            signalLocked -> nextConfidence
-            else -> nextConfidence
-        }
-
-        val shownStatus = when {
-            activeTrade && activeSignal == "CALL" -> "CALL"
-            activeTrade && activeSignal == "PUT" -> "PUT"
-            signalLocked && nextSignal == "CALL" && nextConfidence >= CONFIDENCE_LEVEL -> "CALL"
-            signalLocked && nextSignal == "PUT" && nextConfidence >= CONFIDENCE_LEVEL -> "PUT"
-            else -> "WAITING"
-        }
-
-        val resultText = if (recentResults.isEmpty()) {
-            "-"
+        val shownConfidence = if (quickMode) {
+            if (signalLocked && (nextSignal == "CALL" || nextSignal == "PUT")) {
+                nextConfidence.coerceAtLeast(90)
+            } else {
+                0
+            }
         } else {
-            val wins = recentResults.count { it == "WIN" }
-            val total = recentResults.size
-            "$wins/$total"
+            when {
+                activeTrade -> activeConfidence
+                signalLocked -> nextConfidence
+                else -> nextConfidence.coerceAtMost(89)
+            }
         }
-
-        return "5S SCANNER\n" +
-            "CONFIDENCE: ${shownConfidence}%\n" +
-            "CANDLES: $candleCount\n" +
-            "STATUS: $shownStatus\n" +
+        val resultText = if (recentResults.isEmpty()) "-" else {
+            val wins = recentResults.count { it == "WIN" }
+            "${wins}/${recentResults.size}"
+        }
+        return "5S QUICK\n" +
+            "CHART: LINE\n" +
+            "SIGNAL: ${if (signalLocked) nextSignal else "NO TRADE"}\n" +
+            "MOMENTUM: ${shownConfidence}%\n" +
+            "STATUS: ${if (signalLocked) "LOCKED 5 SEC" else status}\n" +
             "RESULT: $resultText"
     }
-
     private fun formatPrice(value: Double): String {
         if (value.isNaN() || value.isInfinite()) return "WAITING"
         return String.format(Locale.US, "%.2f", value)

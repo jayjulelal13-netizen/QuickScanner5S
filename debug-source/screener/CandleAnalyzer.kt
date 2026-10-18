@@ -1106,8 +1106,8 @@ object CandleAnalyzer {
         // Keep the scanner out of the top banner/overlay and the right price
         // scale/current-price bubble. These areas can contain the same green/red
         // pixels as candles and can corrupt candle spacing.
-        val top = (height * TOP_RATIO).toInt().coerceIn(0, height - 240)
-        val bottom = (height * BOTTOM_RATIO).toInt().coerceIn(top + 240, height)
+        val top = (height * 0.12f).toInt().coerceIn(0, height - 240)
+        val bottom = (height * 0.72f).toInt().coerceIn(top + 240, height)
         val chartLeft = (width * 0.015f).toInt().coerceAtLeast(0)
         val chartRight = (width * 0.84f).toInt().coerceIn(chartLeft + 180, width - 1)
         val chartHeight = bottom - top
@@ -1184,16 +1184,26 @@ object CandleAnalyzer {
 
         // Median distance between neighbouring peaks gives the current zoom's
         // candle pitch.  Ignore tiny noise gaps and very large gaps.
-        val gaps = rawPeaks.zipWithNext()
-            .map { (a, b) -> b - a }
-            .filter { it in 5..60 }
-        val pitch = if (gaps.size >= 4) {
-            val sorted = gaps.sorted()
-            if (sorted.size % 2 == 1) sorted[sorted.size / 2].toDouble()
-            else (sorted[sorted.size / 2 - 1] + sorted[sorted.size / 2]) / 2.0
-        } else {
-            max(7.0, span / 70.0)
-        }
+        val gaps: List<Int> = rawPeaks.zipWithNext()
+            .map { pair -> pair.second - pair.first }
+            .filter { gap -> gap in 5..60 }
+
+        val pitch: Double =
+            if (gaps.size >= 4) {
+                val sorted: List<Double> = gaps
+                    .map { it.toDouble() }
+                    .sorted()
+                if (sorted.size % 2 == 1) {
+                    sorted[sorted.size / 2]
+                } else {
+                    val a = sorted[sorted.size / 2 - 1]
+                    val b = sorted[sorted.size / 2]
+                    (a + b) / 2.0
+                }
+            } else {
+                val fallbackPitch = span.toDouble() / 70.0
+                if (fallbackPitch > 7.0) fallbackPitch else 7.0
+            }
 
         val minDistance = max(4, (pitch * 0.58).roundToInt())
         val selected = mutableListOf<Int>()
@@ -1208,8 +1218,12 @@ object CandleAnalyzer {
         // either end of the visible sequence.
         val cleaned = mutableListOf<Int>()
         for (idx in centres.indices) {
-            val leftGap = if (idx > 0) centres[idx] - centres[idx - 1] else pitch
-            val rightGap = if (idx < centres.lastIndex) centres[idx + 1] - centres[idx] else pitch
+            val leftGap: Double =
+                if (idx > 0) (centres[idx] - centres[idx - 1]).toDouble()
+                else pitch
+            val rightGap: Double =
+                if (idx < centres.lastIndex) (centres[idx + 1] - centres[idx]).toDouble()
+                else pitch
             if (!(leftGap > pitch * 1.85 && rightGap > pitch * 1.85)) {
                 cleaned += centres[idx]
             }
@@ -1308,5 +1322,125 @@ object CandleAnalyzer {
             emptyList()
         }
     }
+
+    /**
+     * Live 5S setup-strength score. This is a measured setup score,
+     * not a guaranteed win probability.
+     */
+    fun quickActivityScore(
+        history: List<DetectedCandle>,
+        running: DetectedCandle,
+        bucketOpen: Double
+    ): Pair<String, Int> {
+        if (!running.open.isFinite() || !running.high.isFinite() ||
+            !running.low.isFinite() || !running.close.isFinite() ||
+            !bucketOpen.isFinite()) {
+            return Pair("NO TRADE", 0)
+        }
+
+        val range = (running.high - running.low).coerceAtLeast(1.0e-9)
+        val closeMove = running.close - bucketOpen
+
+        // Use the full intrabar excursion, not only close-to-open. Screen
+        // sampling can keep close unchanged for several frames while the
+        // wick/high/low is already moving.
+        val upExcursion = running.high - bucketOpen
+        val downExcursion = bucketOpen - running.low
+        val excursion = max(abs(upExcursion), abs(downExcursion))
+        val excursionMove = when {
+            upExcursion > 0.0 && upExcursion >= downExcursion -> upExcursion
+            downExcursion > 0.0 -> -downExcursion
+            else -> closeMove
+        }
+
+        val moveRatio = (excursion / range).coerceIn(0.0, 1.0)
+        val bodyRatio =
+            (abs(running.close - running.open) / range).coerceIn(0.0, 1.0)
+
+        val recent = history.dropLast(1).takeLast(6)
+        val bulls = recent.count { it.close > it.open }
+        val bears = recent.count { it.close < it.open }
+        val recentMove =
+            if (recent.size >= 2) recent.last().close - recent.first().open else 0.0
+        val recentRange = recent.sumOf {
+            (it.high - it.low).coerceAtLeast(1.0e-9)
+        }.coerceAtLeast(1.0e-9)
+        val recentStrength =
+            (abs(recentMove) / recentRange).coerceIn(0.0, 1.0)
+
+        val direction = when {
+            excursionMove > 0.0 -> "CALL"
+            excursionMove < 0.0 -> "PUT"
+            running.close > running.open -> "CALL"
+            running.close < running.open -> "PUT"
+            bulls >= 3 && recentMove > 0.0 -> "CALL"
+            bears >= 3 && recentMove < 0.0 -> "PUT"
+            else -> "NO TRADE"
+        }
+        if (direction == "NO TRADE") return Pair(direction, 0)
+
+        val recentDirection = when {
+            bulls >= 3 && recentMove > 0.0 -> "CALL"
+            bears >= 3 && recentMove < 0.0 -> "PUT"
+            else -> "NO TRADE"
+        }
+
+        var score = 15
+        score += when {
+            moveRatio >= 0.75 -> 42
+            moveRatio >= 0.55 -> 38
+            moveRatio >= 0.40 -> 32
+            moveRatio >= 0.28 -> 25
+            moveRatio >= 0.16 -> 17
+            moveRatio >= 0.08 -> 9
+            else -> 3
+        }
+        score += when {
+            bodyRatio >= 0.70 -> 22
+            bodyRatio >= 0.50 -> 18
+            bodyRatio >= 0.35 -> 14
+            bodyRatio >= 0.22 -> 9
+            bodyRatio > 0.0 -> 4
+            else -> 0
+        }
+
+        if (recentDirection == direction) score += 16
+        if ((direction == "CALL" && bulls >= 4) ||
+            (direction == "PUT" && bears >= 4)) score += 8
+        else if ((direction == "CALL" && bulls >= 3) ||
+                 (direction == "PUT" && bears >= 3)) score += 5
+
+        if (recentStrength >= 0.25) score += 7
+        else if (recentStrength >= 0.12) score += 3
+
+        // If recent candles strongly oppose the live excursion, suppress the
+        // setup instead of manufacturing a high confidence value.
+        if ((direction == "CALL" && bears >= 5) ||
+            (direction == "PUT" && bulls >= 5)) {
+            score -= 15
+        }
+
+        return Pair(direction, score.coerceIn(0, 100))
+    }
+
+
+    fun recentActivityDirection(
+        candles: List<DetectedCandle>
+    ): String {
+        if (candles.size < 4) return "NONE"
+        val recent = candles.takeLast(8)
+        val bulls = recent.count { it.close > it.open }
+        val bears = recent.count { it.close < it.open }
+        val move = recent.last().close - recent.first().open
+
+        return when {
+            bulls >= 5 && move > 0.0 -> "CALL"
+            bears >= 5 && move < 0.0 -> "PUT"
+            bulls >= 4 && bulls > bears && move > 0.0 -> "CALL"
+            bears >= 4 && bears > bulls && move < 0.0 -> "PUT"
+            else -> "NONE"
+        }
+    }
+
 
 }

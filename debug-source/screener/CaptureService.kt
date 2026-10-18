@@ -24,6 +24,7 @@ import android.util.Log
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 class CaptureService : Service() {
@@ -46,7 +47,7 @@ class CaptureService : Service() {
         /*
          * One processed frame per second.
          */
-        private const val FRAME_INTERVAL = 1000L
+        private const val FRAME_INTERVAL = 200L
 
         private const val MIN_HISTORY = 5
         private const val MAX_HISTORY = 300
@@ -239,8 +240,16 @@ class CaptureService : Service() {
     // ============================================================
     // 5-SECOND QUICK SETUP
     // ============================================================
+    private data class QuickPressureCandle(val bucket: Long, val open: Double, var high: Double, var low: Double, var close: Double)
+    private var quickPressureCandle: QuickPressureCandle? = null
+    private val quickPressureHistory = mutableListOf<QuickPressureCandle>()
+
     private var quickBucketId = -1L
     private var quickLastClose = Double.NaN
+    private var quickPrevFrameClose = Double.NaN
+    private var quickBucketOpen = Double.NaN
+    private var quickBucketClose = Double.NaN
+    private var quickLastSampleBucket = -1L
     private var quickLastSignalBucket = -1L
     private var quickSignal = "NO TRADE"
     private var quickSignalEntry = Double.NaN
@@ -250,6 +259,12 @@ class CaptureService : Service() {
     private var quickLosses = 0
     private var quickLastSetupKey = ""
     private var quickLastSetupBucket = -1L
+
+    private var lineSignalDirection = "NONE"
+    private var lineSignalEntryY = Double.NaN
+    private var lineSignalUntilMs = 0L
+    private var lineLastSignalMs = 0L
+    private val lineSamples = ArrayDeque<Pair<Long, Double>>()
 
     // Shadow 5-second observations build the empirical calibration before
     // any real 5-second signal is allowed through the 90% gate.
@@ -377,11 +392,10 @@ class CaptureService : Service() {
                 intent?.getStringExtra("timeframe") ?: "1M"
             )
 
-        // 5S QUICK is an app-derived 5-second mode. The broker chart
-        // remains on 1M; quickMode observes successive 1M screen frames
-        // and derives the 5-second move from the running candle.
+        // 5S QUICK is an app-derived 5-second mode. Binomo 5ST requires a 1-second broker chart; quickMode observes the
+        // live 1-second screen frames and derives the 5-second demo window.
         if (quickMode) {
-            selectedTimeframe = "1M"
+            selectedTimeframe = "1S"
         }
 
         try {
@@ -452,6 +466,8 @@ class CaptureService : Service() {
         lastCaptureTime = 0L
 
         quickBucketId = -1L
+        quickPressureCandle = null
+        quickPressureHistory.clear()
         quickLastClose = Double.NaN
         quickLastSignalBucket = -1L
         quickSignal = "NO TRADE"
@@ -463,6 +479,12 @@ class CaptureService : Service() {
         quickShadowUntilBucket = -1L
         quickLastSetupKey = ""
         quickLastSetupBucket = -1L
+
+        lineSignalDirection = "NONE"
+        lineSignalEntryY = Double.NaN
+        lineSignalUntilMs = 0L
+        lineLastSignalMs = 0L
+        lineSamples.clear()
 
         currentPeriodId = -1L
         lastSignalPeriodId = -1L
@@ -509,6 +531,8 @@ class CaptureService : Service() {
         cooldownPeriodsRemaining = 0
 
         quickBucketId = -1L
+        quickPressureCandle = null
+        quickPressureHistory.clear()
         quickLastClose = Double.NaN
         quickLastSignalBucket = -1L
         quickSignal = "NO TRADE"
@@ -1079,6 +1103,29 @@ class CaptureService : Service() {
             return
         }
 
+        // 5S QUICK target is a blue LINE chart, not OHLC candles.
+        if (quickMode) {
+            try {
+                val lineY = LineChartAnalyzer.extractPriceY(bitmap)
+                if (lineY != null) {
+                    updateQuickLine5s(lineY)
+                    sendCandleCount(0)
+                    return
+                } else {
+                    // In 5S QUICK, a missing line is a hard gate.
+                    // NEVER fall through to the normal candle engine.
+                    sendQuickStatus("NO TRADE", 0, 0, "NO LINE CHART • WAITING")
+                    sendCandleCount(0)
+                    return
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Line chart detection failed", e)
+                sendQuickStatus("NO TRADE", 0, 0, "LINE DETECTION WAITING")
+                sendCandleCount(0)
+                return
+            }
+        }
+
         val detected =
             try {
 
@@ -1122,6 +1169,24 @@ class CaptureService : Service() {
 
         val currentRunningCandle =
             detected.last()
+
+        // V23: feed the 5S activity analyzer on every detected frame,
+        // before any normal 1M lifecycle/return guard.
+        if (quickMode) {
+            try {
+                updateQuick5s(currentRunningCandle)
+            } catch (e: Exception) {
+                Log.e(TAG, "V23 quick activity feed", e)
+            }
+        }
+
+        if (quickMode) {
+            try {
+                updateQuick5s(currentRunningCandle)
+            } catch (e: Exception) {
+                Log.e(TAG, "V13 quick activity update failed", e)
+            }
+        }
 
         val nowMillis =
             System.currentTimeMillis()
@@ -1290,6 +1355,13 @@ class CaptureService : Service() {
             createCandleSignature(
                 currentRunningCandle
             )
+        if (quickMode) {
+            try {
+                updateQuick5s(currentRunningCandle)
+            } catch (e: Exception) {
+                Log.e(TAG, "V18 quick activity frame error", e)
+            }
+        }
 
         /*
          * Safety:
@@ -1596,13 +1668,7 @@ class CaptureService : Service() {
 
         // QUICK mode uses the running 1M candle plus successive screen
         // frames to derive genuine 5-second observations.
-        if (quickMode) {
-            try {
-                updateQuick5s(detected.last())
-            } catch (e: Exception) {
-                Log.e(TAG, "Legacy quick engine error", e)
-            }
-        }
+
     }
 
     // ============================================================
@@ -2666,253 +2732,285 @@ class CaptureService : Service() {
     // There is no honest way to invent historical 5-second candles from
     // a 1M candle, so the quick probability starts only after enough
     // real 5-second observations have been recorded.
-    private fun updateQuick5s(
-        runningCandle: CandleAnalyzer.DetectedCandle
-    ) {
-        val nowBucket = System.currentTimeMillis() / QUICK_BUCKET_MS
-
-        if (quickBucketId < 0L) {
-            quickBucketId = nowBucket
-            quickLastClose = runningCandle.close
-            return
+    private fun updateQuickLine5s(priceY: Double) {
+        val now = System.currentTimeMillis()
+        lineSamples.addLast(now to priceY)
+        while (lineSamples.isNotEmpty() && now - lineSamples.first().first > 2200L) {
+            lineSamples.removeFirst()
         }
 
-        if (nowBucket == quickBucketId) {
-            // Keep the first observed close of the current 5-second bucket.
-            // This gives us a real 5-second delta when the bucket changes.
-            return
-        }
-
-        // First settle a previous 5-second virtual trade.
-        if (
-            quickSignalDirection == "CALL" ||
-            quickSignalDirection == "PUT"
-        ) {
-            if (
-                quickActiveUntilBucket >= 0L &&
-                nowBucket >= quickActiveUntilBucket
-            ) {
-                val exit = runningCandle.close
-                val win =
-                    if (quickSignalDirection == "CALL") {
-                        exit > quickSignalEntry
-                    } else {
-                        exit < quickSignalEntry
-                    }
-
-                if (win) quickWins++ else quickLosses++
-
-                probabilityPrefs.edit()
-                    .putInt("quick_wins", quickWins)
-                    .putInt("quick_losses", quickLosses)
-                    .apply()
-
-                quickSignalDirection = "NONE"
-                quickSignal = "NO TRADE"
-                quickSignalEntry = Double.NaN
-                quickActiveUntilBucket = -1L
-            }
-        }
-
-        // Settle the previous shadow observation. Shadow observations
-        // are never shown as trades; they exist only to measure the
-        // strategy's actual 5-second hit rate.
-        if (
-            quickShadowDirection == "CALL" ||
-            quickShadowDirection == "PUT"
-        ) {
-            if (
-                quickShadowUntilBucket >= 0L &&
-                nowBucket >= quickShadowUntilBucket
-            ) {
-                val shadowWin =
-                    if (quickShadowDirection == "CALL") {
-                        runningCandle.close > quickShadowEntry
-                    } else {
-                        runningCandle.close < quickShadowEntry
-                    }
-
-                val winsKey =
-                    if (quickShadowDirection == "CALL") {
-                        "shadow_call_wins"
-                    } else {
-                        "shadow_put_wins"
-                    }
-                val lossesKey =
-                    if (quickShadowDirection == "CALL") {
-                        "shadow_call_losses"
-                    } else {
-                        "shadow_put_losses"
-                    }
-
-                val shadowWins =
-                    probabilityPrefs.getInt(winsKey, 0) +
-                        if (shadowWin) 1 else 0
-                val shadowLosses =
-                    probabilityPrefs.getInt(lossesKey, 0) +
-                        if (shadowWin) 0 else 1
-
-                probabilityPrefs.edit()
-                    .putInt(winsKey, shadowWins)
-                    .putInt(lossesKey, shadowLosses)
-                    .apply()
-
-                quickShadowDirection = "NONE"
-                quickShadowEntry = Double.NaN
-                quickShadowUntilBucket = -1L
-            }
-        }
-
-        quickBucketId = nowBucket
-
-        // 5S QUICK must be able to START calibration without waiting
-        // for 31 completed 1M candles.  The 5S engine is based on the
-        // running 1M candle plus successive 5-second screen observations.
-        // Requiring 31 one-minute candles here previously kept N=0 for
-        // a long time and made 5S QUICK appear broken.
-        val base =
-            if (candleHistory.size >= 5) {
-                try {
-                    CandleAnalyzer.analyzeHistory(
-                        candleHistory.takeLast(MAX_HISTORY),
-                        "1M"
-                    )
-                } catch (_: Exception) {
-                    null
+        if (lineSignalDirection == "CALL" || lineSignalDirection == "PUT") {
+            if (now >= lineSignalUntilMs) {
+                val win = if (lineSignalDirection == "CALL") {
+                    priceY < lineSignalEntryY
+                } else {
+                    priceY > lineSignalEntryY
                 }
+                sendQuickStatus(
+                    "NO TRADE", 0, lineSamples.size,
+                    if (win) "5S DEMO RESULT: WIN" else "5S DEMO RESULT: LOSS"
+                )
+                lineSignalDirection = "NONE"
+                lineSignalEntryY = Double.NaN
+                lineSignalUntilMs = 0L
+                lineLastSignalMs = now
             } else {
-                null
+                sendQuickStatus(lineSignalDirection, 0, lineSamples.size, "5S SIGNAL LOCKED")
+                return
             }
+        }
 
-        val baseDirection =
-            base?.signal?.uppercase(Locale.US) ?: "NO TRADE"
-        val microMove = runningCandle.close - quickLastClose
-        // Price scales such as USD/BRL are often below 1.0.
-        // Using 1.0 as the minimum range makes microStrength almost zero
-        // and prevents every 5S candidate from ever being detected.
-        val microRange =
-            (runningCandle.high - runningCandle.low).coerceAtLeast(1.0e-9)
-        val microStrength =
-            abs(microMove) / microRange
+        if (lineSamples.size < 5) {
+            sendQuickStatus("NO TRADE", 0, lineSamples.size, "LINE DETECTED • WARMING")
+            return
+        }
 
-        val microBull =
-            microMove > 0.0 &&
-            microStrength >= 0.04
+        val values = lineSamples.map { it.second }
+        val first = values.first()
+        val last = values.last()
+        val delta = first - last
 
-        val microBear =
-            microMove < 0.0 &&
-            microStrength >= 0.04
+        // Ignore sub-pixel jitter. Direction must agree across most observed
+        // moves before a 90% signal is allowed.
+        var up = 0
+        var down = 0
+        var previous = first
+        for (y in values.drop(1)) {
+            val d = previous - y
+            if (d > 2.0) up++
+            else if (d < -2.0) down++
+            previous = y
+        }
 
-        // Prefer the normal 1M strategy direction when it agrees with
-        // the 5-second movement. If the 1M strategy is still WAIT/
-        // SIDEWAYS, allow the micro-move itself to create a CALIBRATION
-        // candidate. This is only for 5S shadow learning; the 90%
-        // empirical gate still blocks live/demo 5S signals until enough
-        // real observations have been collected.
-        val direction =
-            when {
-                baseDirection == "CALL" && microBull -> "CALL"
-                baseDirection == "PUT" && microBear -> "PUT"
-                baseDirection != "CALL" &&
-                    baseDirection != "PUT" &&
-                    microBull -> "CALL"
-                baseDirection != "CALL" &&
-                    baseDirection != "PUT" &&
-                    microBear -> "PUT"
-                else -> "NO TRADE"
-            }
+        val directionalMoves = up + down
+        if (directionalMoves < 5) {
+            val scanScore = (55 + kotlin.math.abs(delta).coerceAtMost(15.0)).roundToInt()
+            sendQuickStatus("NO TRADE", scanScore.coerceIn(0, 89), lineSamples.size,
+                "LINE DETECTED • SCANNING")
+            return
+        }
 
-        val probability =
-            if (direction == "CALL" || direction == "PUT") {
-                quickHistoricalProbability(direction)
-            } else null
+        val agreement = maxOf(up, down).toDouble() / directionalMoves.toDouble()
+        val movement = kotlin.math.abs(delta)
 
-        val setupKey =
-            direction + ":" +
-                (base?.trend ?: "MICRO") + ":" +
-                runningCandle.bullish
+        val movementScore = when {
+            movement >= 20.0 -> 45
+            movement >= 16.0 -> 40
+            movement >= 12.0 -> 34
+            movement >= 8.0 -> 28
+            movement >= 6.0 -> 20
+            movement >= 4.0 -> 12
+            else -> 6
+        }
+        val agreementScore = when {
+            agreement >= 0.66 -> 45
+            agreement >= 0.60 -> 40
+            agreement >= 0.55 -> 32
+            agreement >= 0.50 -> 24
+            else -> 12
+        }
 
-        val cooldown =
-            quickLastSignalBucket >= 0L &&
-            nowBucket - quickLastSignalBucket <
-                QUICK_COOLDOWN_BUCKETS
+        val momentum = (movementScore + agreementScore).coerceIn(0, 99)
+        val strongDirection = if (up > down) "CALL" else "PUT"
 
-        /*
-         * QUICK calibration must be able to collect observations much
-         * faster than the normal 1M signal cooldown. The old 12-bucket
-         * (60 second) freshness rule could leave N stuck at 0/very low
-         * even though 5-second movement was being observed.
-         *
-         * A shadow observation is still limited to one active observation
-         * at a time, and it settles after one 5-second bucket, so this does
-         * NOT create overlapping samples.
-         */
-        val freshSetup =
-            setupKey != quickLastSetupKey ||
-                nowBucket - quickLastSetupBucket >= QUICK_COOLDOWN_BUCKETS
+        // Meaningful movement and strong directional agreement are
+        // mandatory. The gate is practical enough to trigger on real line
+        // moves while still rejecting weak/noisy motion.
+        val strong = movement >= 20.0 && agreement >= 0.66 && momentum >= 90
 
-        // Always collect a shadow result for a fresh candidate until
-        // calibration is mature. This is how the app earns the right to
-        // call a 5-second setup "90%+"; no fake seed data is used.
-        if (
-            (direction == "CALL" || direction == "PUT") &&
-            freshSetup &&
-            quickShadowDirection == "NONE"
-        ) {
+        if (strong) {
+            lineSignalDirection = strongDirection
+            lineSignalEntryY = priceY
+            lineSignalUntilMs = now + 5000L
+            lineLastSignalMs = now
+
+            sendQuickStatus(
+                strongDirection, momentum, lineSamples.size,
+                "5S DEMO SIGNAL • LOCK 5 SEC"
+            )
+        } else {
+            sendQuickStatus(
+                "NO TRADE", momentum.coerceAtMost(89), lineSamples.size,
+                "LINE DETECTED • SCANNING"
+            )
+        }
+    }
+
+    private fun updateQuick5s(runningCandle: CandleAnalyzer.DetectedCandle) {
+        val nowBucket = System.currentTimeMillis() / QUICK_BUCKET_MS
+        val price = runningCandle.close
+        if (!price.isFinite()) {
+            sendQuickStatus("NO TRADE", 0, 0, "WAIT - INVALID PRICE")
+            return
+        }
+
+        if (quickBucketId < 0L || quickPressureCandle == null) {
+            quickBucketId = nowBucket
+            quickLastClose = price
+            quickPressureCandle = QuickPressureCandle(nowBucket, price, price, price, price)
+            return
+        }
+
+        val building = quickPressureCandle
+        if (nowBucket == quickBucketId && building != null) {
+            building.high = max(building.high, price)
+            building.low = min(building.low, price)
+            building.close = price
+            return
+        }
+
+        // Missing capture buckets invalidate the setup; never synthesize missing data.
+        if (nowBucket != quickBucketId + 1L || building == null) {
+            quickBucketId = nowBucket
+            quickLastClose = price
+            quickPressureCandle = QuickPressureCandle(nowBucket, price, price, price, price)
+            quickShadowDirection = "NONE"
+            quickShadowEntry = Double.NaN
+            quickShadowUntilBucket = -1L
+            quickSignalDirection = "NONE"
+            quickSignal = "NO TRADE"
+            quickSignalEntry = Double.NaN
+            quickActiveUntilBucket = -1L
+            sendQuickStatus("NO TRADE", 0, 0, "WAIT - MISSED 5S DATA")
+            return
+        }
+
+        val closed = building
+        quickPressureHistory.add(closed)
+        while (quickPressureHistory.size > 120) quickPressureHistory.removeAt(0)
+
+        // Score a shadow setup only when the next bucket's first real price arrives.
+        if ((quickShadowDirection == "CALL" || quickShadowDirection == "PUT") &&
+            quickShadowUntilBucket >= 0L && nowBucket >= quickShadowUntilBucket) {
+            val won = if (quickShadowDirection == "CALL") price > quickShadowEntry else price < quickShadowEntry
+            val wk = if (quickShadowDirection == "CALL") "shadow_call_wins" else "shadow_put_wins"
+            val lk = if (quickShadowDirection == "CALL") "shadow_call_losses" else "shadow_put_losses"
+            val wins = probabilityPrefs.getInt(wk, 0) + if (won) 1 else 0
+            val losses = probabilityPrefs.getInt(lk, 0) + if (won) 0 else 1
+            probabilityPrefs.edit().putInt(wk, wins).putInt(lk, losses).apply()
+            quickShadowDirection = "NONE"
+            quickShadowEntry = Double.NaN
+            quickShadowUntilBucket = -1L
+        }
+
+        if ((quickSignalDirection == "CALL" || quickSignalDirection == "PUT") &&
+            quickActiveUntilBucket >= 0L && nowBucket >= quickActiveUntilBucket) {
+            val won = if (quickSignalDirection == "CALL") price > quickSignalEntry else price < quickSignalEntry
+            if (won) quickWins++ else quickLosses++
+            probabilityPrefs.edit().putInt("quick_wins", quickWins).putInt("quick_losses", quickLosses).apply()
+            quickSignalDirection = "NONE"
+            quickSignal = "NO TRADE"
+            quickSignalEntry = Double.NaN
+            quickActiveUntilBucket = -1L
+        }
+
+        // Start the next bucket before evaluating the completed one.
+        quickBucketId = nowBucket
+        quickLastClose = price
+        quickPressureCandle = QuickPressureCandle(nowBucket, price, price, price, price)
+
+        val oneMinute = candleHistory.takeLast(MAX_HISTORY)
+        if (oneMinute.size < 30 || quickPressureHistory.size < 3) {
+            sendQuickStatus("NO TRADE", 0, quickPressureHistory.size, "WAIT - BUILDING 1M/5S HISTORY")
+            return
+        }
+
+        val trend1m = quickTrend(oneMinute.map { it.close }, 5, 13)
+        // Approximate 5M structure from five-candle groups on the 1M chart.
+        // This is not an independent broker-provided 5M candle feed.
+        val fiveMinuteCloses = oneMinute.takeLast(60).chunked(5)
+            .filter { it.size == 5 }.map { it.last().close }
+        val trend5m = quickTrend(fiveMinuteCloses, 3, 6)
+
+        val range = (closed.high - closed.low).coerceAtLeast(1.0e-12)
+        val bodyRatio = (abs(closed.close - closed.open) / range).coerceIn(0.0, 1.0)
+        val upper = (closed.high - max(closed.open, closed.close)).coerceAtLeast(0.0) / range
+        val lower = (min(closed.open, closed.close) - closed.low).coerceAtLeast(0.0) / range
+        val closeLocation = ((closed.close - closed.low) / range).coerceIn(0.0, 1.0)
+        val micro = quickPressureHistory.takeLast(3)
+        val momentum = micro.last().close - micro.first().open
+        val momentumUp = momentum > 0.0
+        val momentumDown = momentum < 0.0
+
+        // Body + close location + both wick tips + three-candle momentum.
+        // This is price-action pressure, not order-book buying/selling volume.
+        val bullPressure = (bodyRatio * 0.40 + closeLocation * 0.30 + lower * 0.20 +
+            (if (momentumUp) 0.10 else 0.0) - upper * 0.20).coerceIn(0.0, 1.0)
+        val bearPressure = (bodyRatio * 0.40 + (1.0 - closeLocation) * 0.30 + upper * 0.20 +
+            (if (momentumDown) 0.10 else 0.0) - lower * 0.20).coerceIn(0.0, 1.0)
+
+        val bull = closed.close > closed.open && bodyRatio >= 0.35 &&
+            closeLocation >= 0.62 && upper <= 0.35 && momentumUp && bullPressure >= 0.58
+        val bear = closed.close < closed.open && bodyRatio >= 0.35 &&
+            closeLocation <= 0.38 && lower <= 0.35 && momentumDown && bearPressure >= 0.58
+
+        val direction = when {
+            trend5m == "BULLISH" && trend1m == "BULLISH" && bull -> "CALL"
+            trend5m == "BEARISH" && trend1m == "BEARISH" && bear -> "PUT"
+            else -> "NO TRADE"
+        }
+
+        val setupKey = "$trend5m:$trend1m:$direction:" + closed.bucket
+        val cooldown = quickLastSignalBucket >= 0L &&
+            nowBucket - quickLastSignalBucket < QUICK_COOLDOWN_BUCKETS
+        val fresh = setupKey != quickLastSetupKey ||
+            nowBucket - quickLastSetupBucket >= QUICK_COOLDOWN_BUCKETS
+
+        if ((direction == "CALL" || direction == "PUT") && fresh && quickShadowDirection == "NONE") {
             quickShadowDirection = direction
-            quickShadowEntry = runningCandle.close
+            quickShadowEntry = price
             quickShadowUntilBucket = nowBucket + 1L
-
-            // Mark this candidate as sampled so the same setup is not
-            // repeatedly opened on every captured frame inside the
-            // same short interval. It can become fresh again after the
-            // normal 5-second quick cooldown.
             quickLastSetupKey = setupKey
             quickLastSetupBucket = nowBucket
         }
 
-        val canTrade =
-            (direction == "CALL" || direction == "PUT") &&
-            probability != null &&
-            probability >= MIN_EMPIRICAL_PROBABILITY &&
-            !cooldown &&
-            freshSetup &&
+        val probability = if (direction == "CALL" || direction == "PUT") quickHistoricalProbability(direction) else null
+        val samples = if (direction == "CALL" || direction == "PUT") quickHistoricalSampleCount(direction) else 0
+        val canSignal = (direction == "CALL" || direction == "PUT") &&
+            probability != null && probability >= MIN_EMPIRICAL_PROBABILITY &&
+            samples >= MIN_EMPIRICAL_SAMPLES && !cooldown && fresh &&
             quickSignalDirection == "NONE"
 
-        if (canTrade) {
+        if (canSignal) {
             quickSignal = direction
             quickSignalDirection = direction
-            quickSignalEntry = runningCandle.close
+            quickSignalEntry = price
             quickActiveUntilBucket = nowBucket + 1L
             quickLastSignalBucket = nowBucket
             quickLastSetupKey = setupKey
             quickLastSetupBucket = nowBucket
-
-            sendQuickStatus(
-                direction,
-                probability ?: 0,
-                quickHistoricalSampleCount(direction),
-                "5S TRADE"
-            )
+            sendQuickStatus(direction, probability ?: 0, samples, "5S SIGNAL - DEMO TEST ONLY")
         } else {
-            sendQuickStatus(
-                "NO TRADE",
-                probability ?: 0,
-                if (direction == "CALL" || direction == "PUT") {
-                    quickHistoricalSampleCount(direction)
-                } else {
-                    0
-                },
-                if (probability == null)
-                    "WAIT - 5S CALIBRATION (90% GATE)"
-                else if (cooldown || !freshSetup)
-                    "WAIT - FRESH SETUP"
-                else
-                    "NO TRADE"
-            )
+            val why = when {
+                trend5m == "WAITING" || trend1m == "WAITING" -> "WAIT - TREND HISTORY"
+                trend5m != trend1m -> "NO TRADE - TREND CONFLICT"
+                direction == "NO TRADE" -> "NO TRADE - WEAK 5S PRESSURE"
+                probability == null || samples < MIN_EMPIRICAL_SAMPLES -> "WAIT - EMPIRICAL SAMPLES ($samples/$MIN_EMPIRICAL_SAMPLES)"
+                cooldown || !fresh -> "WAIT - FRESH SETUP"
+                else -> "NO TRADE - 90% GATE"
+            }
+            sendQuickStatus("NO TRADE", probability ?: 0, samples, why)
         }
+    }
 
-        quickLastClose = runningCandle.close
+    private fun quickTrend(values: List<Double>, fastPeriod: Int, slowPeriod: Int): String {
+        if (values.size < maxOf(slowPeriod + 2, 6)) return "WAITING"
+        val fast = quickEma(values, fastPeriod)
+        val slow = quickEma(values, slowPeriod)
+        val recent = values.takeLast(3)
+        return when {
+            fast > slow && recent.last() > recent.first() -> "BULLISH"
+            fast < slow && recent.last() < recent.first() -> "BEARISH"
+            else -> "SIDEWAYS"
+        }
+    }
+
+    private fun quickEma(values: List<Double>, period: Int): Double {
+        if (values.isEmpty()) return Double.NaN
+        val alpha = 2.0 / (period + 1.0)
+        var value = values.first()
+        for (i in 1 until values.size) value = alpha * values[i] + (1.0 - alpha) * value
+        return value
     }
 
     private fun quickHistoricalProbability(
@@ -2951,6 +3049,7 @@ class CaptureService : Service() {
             putExtra("timeframe", "5S")
             putExtra("quickSignal", signal)
             putExtra("quickProbability", probability)
+            putExtra("confidence", probability)
             putExtra("quickSamples", samples)
             putExtra("quickStatus", statusText)
         }
