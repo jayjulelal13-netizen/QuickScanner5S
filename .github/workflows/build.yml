@@ -70,6 +70,7 @@ jobs:
           python3 patch_linechart_5s.py
           python3 patch_chart_gate.py
           python3 patch_v26_pressure_strategy.py
+          python3 patch_overlay_signal_truth.py
           echo "5M + 1M trend and completed 5S pressure strategy patch applied"
           grep -n "applicationId" "$PROJECT_DIR/app/build.gradle.kts"
           grep -nE "val top|val bottom|chartRight|minDistance|halfWindow" "$PROJECT_DIR/app/src/main/java/com/example/screener/CandleAnalyzer.kt"
