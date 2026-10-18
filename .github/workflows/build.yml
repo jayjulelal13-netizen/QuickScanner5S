@@ -68,6 +68,7 @@ jobs:
           python3 patch_v22_activity.py
           python3 patch_v23_activity.py
           python3 patch_linechart_5s.py
+          python3 patch_candle_only_5s.py
           python3 patch_chart_gate.py
           python3 patch_v26_pressure_strategy.py
           python3 patch_overlay_signal_truth.py
