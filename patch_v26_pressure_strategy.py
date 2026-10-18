@@ -5,6 +5,7 @@ from pathlib import Path
 project = Path(os.environ["PROJECT_DIR"])
 target = project / "app/src/main/java/com/example/screener/CaptureService.kt"
 source = target.read_text(encoding="utf-8")
+source = source.replace("import kotlin.math.max\n", "import kotlin.math.max\nimport kotlin.math.min\n")
 
 anchor = "    private var quickBucketId = -1L\n"
 state = """    private data class QuickPressureCandle(val bucket: Long, val open: Double, var high: Double, var low: Double, var close: Double)
