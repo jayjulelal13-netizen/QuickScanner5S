@@ -37,6 +37,7 @@ replacement = r'''    private fun updateQuick5s(runningCandle: CandleAnalyzer.De
             quickBucketId = nowBucket
             quickLastClose = price
             quickPressureCandle = QuickPressureCandle(nowBucket, price, price, price, price)
+            sendQuickStatus("NO TRADE", 0, quickPressureHistory.size, "5S WARMING - COLLECTING DATA")
             return
         }
 
