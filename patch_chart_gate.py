@@ -39,7 +39,7 @@ for target in targets:
     s = s.replace(old, new, 1)
 
     # Never resurrect a stale 5S signal while the chart gate is closed.
-    old = '''"QUICK_5S" -> {\n                    quickMode = true\n                    quickSignal ='''
+    old = '''"QUICK_5S" -> {\n                    quickMode = true\n                    quickChartPresent = true\n                    quickSignal ='''
     new = '''"QUICK_5S" -> {\n                    quickMode = true\n                    val lineSamples = intent.getIntExtra("quickSamples", 0)\n                    if (lineSamples > 0) {
                         quickChartPresent = true
                         quickLastLineSeenMs = System.currentTimeMillis()
