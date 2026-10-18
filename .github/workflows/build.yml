@@ -43,6 +43,12 @@ jobs:
           test -n "$PROJECT_DIR"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
           echo "PROJECT_DIR=$PROJECT_DIR"
+      - name: Set unique QuickScanner5S app identity
+        run: |
+          set -eux
+          python3 patch_app_identity.py
+          grep -n "applicationId" "$PROJECT_DIR/app/build.gradle.kts" "$PROJECT_DIR/app/build.gradle" 2>/dev/null || true
+          grep -n "QuickScanner5S" "$PROJECT_DIR/app/src/main/AndroidManifest.xml"
       - name: Export source for root-cause fix
         run: |
           set -eux
