@@ -218,7 +218,7 @@ replacement = r'''    private fun updateQuick5s(runningCandle: CandleAnalyzer.De
 source = source[:start] + replacement + source[end:]
 send_anchor = '            putExtra("quickStatus", statusText)'
 if send_anchor not in source: raise SystemExit("quick status broadcast anchor not found")
-source = source.replace(send_anchor, send_anchor + '\\n            putExtra("quickDetails", quickOverlayDetails)', 1)
+source = source.replace(send_anchor, send_anchor + '\n            putExtra("quickDetails", quickOverlayDetails)', 1)
 
 target.write_text(source, encoding="utf-8")
 print(f"Patched {target}")
