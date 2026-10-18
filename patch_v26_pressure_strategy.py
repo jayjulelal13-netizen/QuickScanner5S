@@ -10,6 +10,7 @@ source = source.replace("import kotlin.math.max\n", "import kotlin.math.max\nimp
 anchor = "    private var quickBucketId = -1L\n"
 state = """    private data class QuickPressureCandle(val bucket: Long, val open: Double, var high: Double, var low: Double, var close: Double)
     private var quickPressureCandle: QuickPressureCandle? = null
+    private var quickOverlayDetails = "TREND: WAITING\\nPRESSURE: WAITING\\nWICK: WAITING"
     private val quickPressureHistory = mutableListOf<QuickPressureCandle>()
 
 """
@@ -129,6 +130,16 @@ replacement = r'''    private fun updateQuick5s(runningCandle: CandleAnalyzer.De
         val bearPressure = (bodyRatio * 0.40 + (1.0 - closeLocation) * 0.30 + upper * 0.20 +
             (if (momentumDown) 0.10 else 0.0) - lower * 0.20).coerceIn(0.0, 1.0)
 
+        val trendLabel = "TREND: 5M $trend5m / 1M $trend1m"
+        val pressureLabel = "PRESSURE: BUY ${(bullPressure * 100.0).roundToInt()}% / SELL ${(bearPressure * 100.0).roundToInt()}%"
+        val wickLabel = when {
+            lower >= 0.40 && closeLocation >= 0.60 -> "WICK: LOWER REJECTION"
+            upper >= 0.40 && closeLocation <= 0.40 -> "WICK: UPPER REJECTION"
+            upper > lower -> "WICK: UPPER ${(upper * 100.0).roundToInt()}% / LOWER ${(lower * 100.0).roundToInt()}%"
+            else -> "WICK: LOWER ${(lower * 100.0).roundToInt()}% / UPPER ${(upper * 100.0).roundToInt()}%"
+        }
+        quickOverlayDetails = "$trendLabel\\n$pressureLabel\\n$wickLabel"
+
         val bull = closed.close > closed.open && bodyRatio >= 0.35 &&
             closeLocation >= 0.62 && upper <= 0.35 && momentumUp && bullPressure >= 0.58
         val bear = closed.close < closed.open && bodyRatio >= 0.35 &&
@@ -205,5 +216,9 @@ replacement = r'''    private fun updateQuick5s(runningCandle: CandleAnalyzer.De
 
 '''
 source = source[:start] + replacement + source[end:]
+send_anchor = '            putExtra("quickStatus", statusText)'
+if send_anchor not in source: raise SystemExit("quick status broadcast anchor not found")
+source = source.replace(send_anchor, send_anchor + '\\n            putExtra("quickDetails", quickOverlayDetails)', 1)
+
 target.write_text(source, encoding="utf-8")
 print(f"Patched {target}")
