@@ -15,7 +15,7 @@ for p in files:
     s = s.replace('"CHART: LINE\\n" +', '"CHART: CANDLE DETECTION\\n" +')
     # Reject malformed/low-score signals; retain NO TRADE otherwise.
     s = s.replace('if (signal == "CALL" || signal == "PUT") {',
-                  'if ((signal == "CALL" || signal == "PUT") && strength >= CONFIDENCE_LEVEL && quickSamples > 0 && !quickStatus.contains("WAITING", ignoreCase = true) && !quickStatus.contains("NO LINE", ignoreCase = true)) {', 1)
+                  'if ((signal == "CALL" || signal == "PUT") && strength >= CONFIDENCE_LEVEL && !quickStatus.contains("WAITING", ignoreCase = true) && !quickStatus.contains("NO LINE", ignoreCase = true)) {', 1)
     # Avoid a misleading 90% display for any locked result.
     s = s.replace('nextConfidence.coerceAtLeast(90)', 'nextConfidence')
     if s != before:
@@ -23,4 +23,4 @@ for p in files:
         changed += 1
 if changed == 0:
     raise SystemExit("Overlay safety patch made no changes; source layout differs")
-print("Overlay: removed artificial 90% floor; requires >=90 score and candle status")
+print("Overlay: removed artificial 90% floor; requires >=90 measured score and non-waiting status; does not require empirical sample counter")
