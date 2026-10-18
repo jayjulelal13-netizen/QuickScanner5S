@@ -13,9 +13,9 @@ for p in files:
     s = s.replace('nextConfidence = strength.coerceAtLeast(90)', 'nextConfidence = strength')
     # The overlay must not call the detected chart a line chart.
     s = s.replace('"CHART: LINE\\n" +', '"CHART: CANDLE DETECTION\\n" +')
-    # Reject malformed/low-score signals; retain NO TRADE otherwise.
+    # User removed the 90% gate: accept a real directional signal with a positive measured score.
     s = s.replace('if (signal == "CALL" || signal == "PUT") {',
-                  'if ((signal == "CALL" || signal == "PUT") && strength >= CONFIDENCE_LEVEL && !quickStatus.contains("WAITING", ignoreCase = true) && !quickStatus.contains("NO LINE", ignoreCase = true)) {', 1)
+                  'if ((signal == "CALL" || signal == "PUT") && strength > 0 && !quickStatus.contains("WAITING", ignoreCase = true) && !quickStatus.contains("NO LINE", ignoreCase = true)) {', 1)
     # Avoid a misleading 90% display for any locked result.
     s = s.replace('nextConfidence.coerceAtLeast(90)', 'nextConfidence')
     if s != before:
