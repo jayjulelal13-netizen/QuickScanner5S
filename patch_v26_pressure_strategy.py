@@ -87,7 +87,12 @@ replacement = r'''    private fun updateQuick5s(runningCandle: CandleAnalyzer.De
         if ((quickSignalDirection == "CALL" || quickSignalDirection == "PUT") &&
             quickActiveUntilBucket >= 0L && nowBucket >= quickActiveUntilBucket) {
             val won = if (quickSignalDirection == "CALL") price > quickSignalEntry else price < quickSignalEntry
-            if (won) quickWins++ else quickLosses++
+            quickLastResult = when {
+                price == quickSignalEntry -> "DRAW"
+                won -> "WIN"
+                else -> "LOSS"
+            }
+            if (won) quickWins++ else if (price != quickSignalEntry) quickLosses++
             probabilityPrefs.edit().putInt("quick_wins", quickWins).putInt("quick_losses", quickLosses).apply()
             quickSignalDirection = "NONE"
             quickSignal = "NO TRADE"
@@ -170,7 +175,7 @@ replacement = r'''    private fun updateQuick5s(runningCandle: CandleAnalyzer.De
         val setupStrength = ((if (direction == "CALL") bullPressure else bearPressure) * 100.0)
             .roundToInt().coerceIn(0, 100)
         val canSignal = (direction == "CALL" || direction == "PUT") &&
-            setupStrength >= 58 && !cooldown && fresh &&
+            setupStrength >= 85 && !cooldown && fresh &&
             quickSignalDirection == "NONE"
 
         if (canSignal) {
@@ -181,7 +186,7 @@ replacement = r'''    private fun updateQuick5s(runningCandle: CandleAnalyzer.De
             quickLastSignalBucket = nowBucket
             quickLastSetupKey = setupKey
             quickLastSetupBucket = nowBucket
-            sendQuickStatus(direction, setupStrength, samples, "5S SETUP - DEMO ONLY")
+            sendQuickStatus(direction, setupStrength, samples, "5S SETUP >=85 - DEMO ONLY")
         } else {
             val why = when {
                 trend5m == "WAITING" || trend1m == "WAITING" -> "WAIT - TREND HISTORY"
@@ -218,7 +223,7 @@ replacement = r'''    private fun updateQuick5s(runningCandle: CandleAnalyzer.De
 source = source[:start] + replacement + source[end:]
 send_anchor = '            putExtra("quickStatus", statusText)'
 if send_anchor not in source: raise SystemExit("quick status broadcast anchor not found")
-source = source.replace(send_anchor, send_anchor + '\n            putExtra("quickDetails", quickOverlayDetails)', 1)
+source = source.replace(send_anchor, send_anchor + '\n            putExtra("quickDetails", quickOverlayDetails)\n            putExtra("quickResult", "$quickLastResult | W:$quickWins L:$quickLosses")', 1)
 
 target.write_text(source, encoding="utf-8")
 print(f"Patched {target}")
