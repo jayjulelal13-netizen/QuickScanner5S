@@ -82,5 +82,15 @@ if 'quickPriceText = intent.getStringExtra("quickPriceText")' not in o:
 if '"LINE LEVEL: $quickPriceText' not in o:
     o, n = re.subn(r'("CHART: [^"]*\\n" \+)', r'\1\n            "LINE LEVEL: $quickPriceText\\n" +', o, count=1)
     if n != 1: raise SystemExit("overlay chart label missing")
+
+if 'private var quickResultText = "WAITING"' not in o:
+    o = o.replace('    private var quickStatus = "WAITING"', '    private var quickStatus = "WAITING"\\n    private var quickResultText = "WAITING"')
+if 'quickResultText = intent.getStringExtra("quickResult")' not in o:
+    o, n = re.subn(r'(quickPriceText = intent.getStringExtra\\("quickPriceText"\\) ?: quickPriceText)', r'\\1\\n                    quickResultText = intent.getStringExtra("quickResult") ?: quickResultText', o, count=1)
+    if n != 1: raise SystemExit("overlay price receiver anchor missing")
+if '"RESULT: $quickResultText' not in o:
+    o, n = re.subn(r'("LINE LEVEL: \\$quickPriceText\\\\n" \\+)', r'\\1\\n            "RESULT: $quickResultText\\\\n" +', o, count=1)
+    if n != 1: raise SystemExit("overlay line-level label anchor missing")
+
 overlay.write_text(o, encoding="utf-8")
 print("OCR price-label patch applied.")
