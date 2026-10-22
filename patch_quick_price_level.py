@@ -66,15 +66,17 @@ if "private var quickPriceText = \"WAITING\"" not in c:
 ''', 1)
 
 # OCR each quick-mode frame before chart-specific signal logic.
-anchor = '''        // 5S QUICK target is a blue LINE chart, not OHLC candles.
-        if (quickMode) {'''
-if anchor in c:
-    c = c.replace(anchor, '''        if (quickMode) readVisiblePrice(bitmap)
-
-        // 5S QUICK signal logic remains unchanged; OCR only reads the visible quote.
-        if (quickMode) {''', 1)
-else:
-    raise SystemExit("Quick mode processBitmap anchor missing")
+anchor = '''        if (!running) {
+            return
+        }
+'''
+if anchor in c and "if (quickMode) readVisiblePrice(bitmap)" not in c:
+    c = c.replace(anchor, anchor + '''
+        // Read visible quote independently of the chart detector.
+        if (quickMode) readVisiblePrice(bitmap)
+''', 1)
+elif "if (quickMode) readVisiblePrice(bitmap)" not in c:
+    raise SystemExit("Stable processBitmap running gate not found")
 
 # Broadcast OCR value with the existing quick status.
 anchor = '            putExtra("quickStatus", statusText)'
