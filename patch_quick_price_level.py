@@ -13,9 +13,10 @@ if gradle is None:
 g = gradle.read_text(encoding="utf-8")
 if "com.google.mlkit:text-recognition" not in g:
     dep = 'implementation("com.google.mlkit:text-recognition:16.0.1")'
-    if "dependencies {" not in g:
-        raise SystemExit("Gradle dependencies block not found")
-    g = g.replace("dependencies {", "dependencies {\n    " + dep, 1)
+    if "dependencies {" in g:
+        g = g.replace("dependencies {", "dependencies {\n    " + dep, 1)
+    else:
+        g = g.rstrip() + "\n\ndependencies {\n    " + dep + "\n}\n"
     gradle.write_text(g, encoding="utf-8")
 
 c = capture.read_text(encoding="utf-8")
