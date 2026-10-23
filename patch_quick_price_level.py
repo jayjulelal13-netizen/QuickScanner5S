@@ -90,9 +90,14 @@ if 'quickResultText = intent.getStringExtra("quickResult")' not in o:
     if anchor not in o: raise SystemExit("overlay price receiver anchor missing")
     o = o.replace(anchor, anchor + '\\n                    quickResultText = intent.getStringExtra("quickResult") ?: quickResultText', 1)
 if '"RESULT: $quickResultText' not in o:
-    anchor = '"LINE LEVEL: $quickPriceText\\\\n" +'
-    if anchor not in o: raise SystemExit("overlay line-level label anchor missing")
-    o = o.replace(anchor, anchor + '\\n            "RESULT: $quickResultText\\\\n" +', 1)
+    # Insert result on the next line after the line-level display, independent of escaping style.
+    marker = '"LINE LEVEL: $quickPriceText'
+    pos = o.find(marker)
+    if pos < 0: raise SystemExit("overlay line-level label missing")
+    end = o.find('" +', pos)
+    if end < 0: raise SystemExit("overlay line-level expression end missing")
+    end += 3
+    o = o[:end] + '\\n            "RESULT: $quickResultText\\\\n" +' + o[end:]
 
 overlay.write_text(o, encoding="utf-8")
 print("OCR price-label patch applied.")
