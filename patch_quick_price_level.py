@@ -97,7 +97,7 @@ if '"RESULT: $quickResultText' not in o:
     end = o.find('" +', pos)
     if end < 0: raise SystemExit("overlay line-level expression end missing")
     end += 3
-    o = o[:end] + '\\n            "RESULT: $quickResultText\\\\n" +' + o[end:]
+    o = o[:end] + '\\n            "RESULT: $quickResultText\\n" +' + o[end:]
 
 overlay.write_text(o, encoding="utf-8")
 print("OCR price-label patch applied.")
