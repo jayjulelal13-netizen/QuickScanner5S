@@ -176,7 +176,7 @@ replacement = r'''    private fun updateQuick5s(runningCandle: CandleAnalyzer.De
         val setupStrength = ((if (direction == "CALL") bullPressure else bearPressure) * 100.0)
             .roundToInt().coerceIn(0, 100)
         val canSignal = (direction == "CALL" || direction == "PUT") &&
-            setupStrength >= 85 && !cooldown && fresh &&
+            setupStrength >= 80 && !cooldown && fresh &&
             quickSignalDirection == "NONE"
 
         if (canSignal) {
@@ -187,7 +187,7 @@ replacement = r'''    private fun updateQuick5s(runningCandle: CandleAnalyzer.De
             quickLastSignalBucket = nowBucket
             quickLastSetupKey = setupKey
             quickLastSetupBucket = nowBucket
-            sendQuickStatus(direction, setupStrength, samples, "5S SETUP >=85 - DEMO ONLY")
+            sendQuickStatus(direction, setupStrength, samples, "5S SETUP >=80 - DEMO ONLY")
         } else {
             val why = when {
                 trend5m == "WAITING" || trend1m == "WAITING" -> "WAIT - TREND HISTORY"
