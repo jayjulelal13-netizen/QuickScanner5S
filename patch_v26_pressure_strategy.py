@@ -10,6 +10,7 @@ source = source.replace("import kotlin.math.max\n", "import kotlin.math.max\nimp
 anchor = "    private var quickBucketId = -1L\n"
 state = """    private data class QuickPressureCandle(val bucket: Long, val open: Double, var high: Double, var low: Double, var close: Double)
     private var quickPressureCandle: QuickPressureCandle? = null
+    private var quickLastResult = "WAITING FOR SETTLEMENT"
     private var quickOverlayDetails = "TREND: WAITING\\nPRESSURE: WAITING\\nWICK: WAITING"
     private val quickPressureHistory = mutableListOf<QuickPressureCandle>()
 
