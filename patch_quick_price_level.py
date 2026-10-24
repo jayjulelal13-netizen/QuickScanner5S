@@ -74,13 +74,16 @@ o = overlay.read_text(encoding="utf-8")
 if 'private var quickPriceText = "WAITING"' not in o:
     anchor = '    private var quickStatus = "WAITING"'
     if anchor not in o: raise SystemExit("overlay quickStatus field missing")
-    o = o.replace(anchor, anchor + '\n    private var quickPriceText = "WAITING"', 1)
+    o = o.replace(anchor, anchor + '\n    private var quickPriceText = "WAITING"
+    private var quickDetails = "TREND: WAITING\\nPRESSURE: WAITING\\nWICK: WAITING"', 1)
 if 'quickPriceText = intent.getStringExtra("quickPriceText")' not in o:
     pattern = r'(val quickStatus = intent.getStringExtra\("quickStatus"\)\s*\?:\s*"[^"]*")'
-    o, n = re.subn(pattern, r'\1\n                    quickPriceText = intent.getStringExtra("quickPriceText") ?: quickPriceText', o, count=1)
+    o, n = re.subn(pattern, r'\1\n                    quickPriceText = intent.getStringExtra("quickPriceText") ?: quickPriceText
+                    quickDetails = intent.getStringExtra("quickDetails") ?: quickDetails', o, count=1)
     if n != 1: raise SystemExit("overlay QUICK_5S receiver missing")
 if '"LINE LEVEL: $quickPriceText' not in o:
-    o, n = re.subn(r'("CHART: [^"]*\\n" \+)', r'\1\n            "LINE LEVEL: $quickPriceText\\n" +', o, count=1)
+    o, n = re.subn(r'("CHART: [^"]*\\n" \+)', r'\1\n            "LINE LEVEL: $quickPriceText\\n" +
+            "$quickDetails\\n" +', o, count=1)
     if n != 1: raise SystemExit("overlay chart label missing")
 
 if 'private var quickResultText = "WAITING"' not in o:
