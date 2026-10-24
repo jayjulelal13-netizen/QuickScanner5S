@@ -74,33 +74,39 @@ o = overlay.read_text(encoding="utf-8")
 if 'private var quickPriceText = "WAITING"' not in o:
     anchor = '    private var quickStatus = "WAITING"'
     if anchor not in o: raise SystemExit("overlay quickStatus field missing")
-    o = o.replace(anchor, anchor + '\n    private var quickPriceText = "WAITING"
-    private var quickDetails = "TREND: WAITING\\nPRESSURE: WAITING\\nWICK: WAITING"', 1)
+    o = o.replace(anchor, anchor + '\n    private var quickPriceText = "WAITING"', 1)
+if 'private var quickDetails = "TREND: WAITING' not in o:
+    anchor = '    private var quickPriceText = "WAITING"'
+    if anchor not in o: raise SystemExit("overlay quickPriceText field missing")
+    o = o.replace(anchor, anchor + '\n    private var quickDetails = "TREND: WAITING\\nPRESSURE: WAITING\\nWICK: WAITING"', 1)
+if 'private var quickResultText = "WAITING"' not in o:
+    anchor = '    private var quickStatus = "WAITING"'
+    if anchor not in o: raise SystemExit("overlay quickStatus field missing for result")
+    o = o.replace(anchor, anchor + '\n    private var quickResultText = "WAITING"', 1)
 if 'quickPriceText = intent.getStringExtra("quickPriceText")' not in o:
     pattern = r'(val quickStatus = intent.getStringExtra\("quickStatus"\)\s*\?:\s*"[^"]*")'
-    o, n = re.subn(pattern, r'\1\n                    quickPriceText = intent.getStringExtra("quickPriceText") ?: quickPriceText
-                    quickDetails = intent.getStringExtra("quickDetails") ?: quickDetails', o, count=1)
+    o, n = re.subn(pattern, r'\1\n                    quickPriceText = intent.getStringExtra("quickPriceText") ?: quickPriceText', o, count=1)
     if n != 1: raise SystemExit("overlay QUICK_5S receiver missing")
-if '"LINE LEVEL: $quickPriceText' not in o:
-    o, n = re.subn(r'("CHART: [^"]*\\n" \+)', r'\1\n            "LINE LEVEL: $quickPriceText\\n" +
-            "$quickDetails\\n" +', o, count=1)
-    if n != 1: raise SystemExit("overlay chart label missing")
-
-if 'private var quickResultText = "WAITING"' not in o:
-    o = o.replace('    private var quickStatus = "WAITING"', '    private var quickStatus = "WAITING"\n    private var quickResultText = "WAITING"')
+if 'quickDetails = intent.getStringExtra("quickDetails")' not in o:
+    anchor = 'quickPriceText = intent.getStringExtra("quickPriceText") ?: quickPriceText'
+    if anchor not in o: raise SystemExit("overlay price receiver anchor missing for details")
+    o = o.replace(anchor, anchor + '\n                    quickDetails = intent.getStringExtra("quickDetails") ?: quickDetails', 1)
 if 'quickResultText = intent.getStringExtra("quickResult")' not in o:
     anchor = 'quickPriceText = intent.getStringExtra("quickPriceText") ?: quickPriceText'
-    if anchor not in o: raise SystemExit("overlay price receiver anchor missing")
+    if anchor not in o: raise SystemExit("overlay price receiver anchor missing for result")
     o = o.replace(anchor, anchor + '\n                    quickResultText = intent.getStringExtra("quickResult") ?: quickResultText', 1)
+if '"LINE LEVEL: $quickPriceText' not in o:
+    pattern = r'("CHART: [^"]*\\n" \+)'
+    o, n = re.subn(pattern, r'\1\n            "LINE LEVEL: $quickPriceText\\n" +', o, count=1)
+    if n != 1: raise SystemExit("overlay chart label missing")
+if '"$quickDetails' not in o:
+    marker = '"LINE LEVEL: $quickPriceText\\n" +'
+    if marker not in o: raise SystemExit("overlay line level label missing for details")
+    o = o.replace(marker, marker + '\n            "$quickDetails\\n" +', 1)
 if '"RESULT: $quickResultText' not in o:
-    # Insert result on the next line after the line-level display, independent of escaping style.
-    marker = '"LINE LEVEL: $quickPriceText'
-    pos = o.find(marker)
-    if pos < 0: raise SystemExit("overlay line-level label missing")
-    end = o.find('" +', pos)
-    if end < 0: raise SystemExit("overlay line-level expression end missing")
-    end += 3
-    o = o[:end] + '\n            "RESULT: $quickResultText\\n" +' + o[end:]
+    marker = '"$quickDetails\\n" +'
+    if marker not in o: raise SystemExit("overlay details label missing for result")
+    o = o.replace(marker, marker + '\n            "RESULT: $quickResultText\\n" +', 1)
 
 overlay.write_text(o, encoding="utf-8")
-print("OCR price-label patch applied.")
+print("OCR price-label and live pressure overlay patch applied.")
