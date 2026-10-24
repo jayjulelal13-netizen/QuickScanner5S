@@ -70,10 +70,23 @@ if 'private var quickPriceText = "WAITING"' not in c:
         val bestRow = rowCounts.maxByOrNull { it.value }
         if (bestRow == null || bestRow.value < 8) return
         val rowThreshold = maxOf(5, (bestRow.value * 0.45f).toInt())
-        val bandRows = rowCounts.filter { it.value >= rowThreshold }.keys
-        if (bandRows.isEmpty()) return
-        val minY = (bandRows.minOrNull()!! - (bitmap.height * 0.004f).toInt()).coerceAtLeast(0)
-        val maxY = (bandRows.maxOrNull()!! + (bitmap.height * 0.004f).toInt()).coerceAtMost(bitmap.height - 1)
+        // Keep only the contiguous row band around the strongest blue row.
+        // This prevents other blue UI elements from merging into one giant crop.
+        val bestY = bestRow.key
+        var bandTop = bestY
+        var bandBottom = bestY
+        var scanY = bestY - stepY
+        while (scanY >= yStart && (rowCounts[scanY] ?: 0) >= rowThreshold) {
+            bandTop = scanY
+            scanY -= stepY
+        }
+        scanY = bestY + stepY
+        while (scanY < yEnd && (rowCounts[scanY] ?: 0) >= rowThreshold) {
+            bandBottom = scanY
+            scanY += stepY
+        }
+        val minY = (bandTop - (bitmap.height * 0.004f).toInt()).coerceAtLeast(0)
+        val maxY = (bandBottom + (bitmap.height * 0.004f).toInt()).coerceAtMost(bitmap.height - 1)
         var minX = bitmap.width
         var maxX = -1
         y = minY
