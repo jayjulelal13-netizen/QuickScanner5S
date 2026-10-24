@@ -47,7 +47,7 @@ if 'private var quickPriceText = "WAITING"' not in c:
         priceTextRecognizer.process(InputImage.fromBitmap(crop, 0))
             .addOnSuccessListener { result ->
                 val values = result.textBlocks.flatMap { it.lines }.map { it.text.trim().replace(',', '.') }
-                    .filter { it.matches(Regex("\\\\d{1,3}\\\\.\\\\d{3,8}")) }
+                    .filter { it.matches(Regex("\\\\d{1,6}\\\\.\\\\d{1,8}")) }
                 values.maxByOrNull { it.substringAfter('.').length }?.let { quickPriceText = it }
             }
             .addOnFailureListener { Log.w(TAG, "Price OCR failed", it) }
