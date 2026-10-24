@@ -163,18 +163,17 @@ if 'quickResultText = intent.getStringExtra("quickResult")' not in o:
     anchor = 'quickPriceText = intent.getStringExtra("quickPriceText") ?: quickPriceText'
     if anchor not in o: raise SystemExit("overlay price receiver anchor missing for result")
     o = o.replace(anchor, anchor + '\n                    quickResultText = intent.getStringExtra("quickResult") ?: quickResultText', 1)
-if '"LINE LEVEL: $quickPriceText' not in o:
-    pattern = r'("CHART: [^"]*\\n" \+)'
-    o, n = re.subn(pattern, r'\1\n            "LINE LEVEL: $quickPriceText\\n" +', o, count=1)
-    if n != 1: raise SystemExit("overlay chart label missing")
-if '"$quickDetails' not in o:
-    marker = '"LINE LEVEL: $quickPriceText\\n" +'
-    if marker not in o: raise SystemExit("overlay line level label missing for details")
-    o = o.replace(marker, marker + '\n            "$quickDetails\\n" +', 1)
+# LINE LEVEL OCR has been unreliable on different chart layouts. Do not display
+# a potentially incorrect price; keep trend/pressure/wick and result diagnostics.
+o = re.sub(r'^\\s*"LINE LEVEL: \\$quickPriceText\\\\n" \\+\\s*\\n', '', o, flags=re.MULTILINE)
+if '"$quickDetails\\\\n" +' not in o:
+    pattern = r'("CHART: [^"]*\\\\n" \\+)'
+    o, n = re.subn(pattern, r'\\1\\n            "$quickDetails\\\\n" +', o, count=1)
+    if n != 1: raise SystemExit("overlay chart label missing for details")
 if '"RESULT: $quickResultText' not in o:
-    marker = '"$quickDetails\\n" +'
+    marker = '"$quickDetails\\\\n" +'
     if marker not in o: raise SystemExit("overlay details label missing for result")
-    o = o.replace(marker, marker + '\n            "RESULT: $quickResultText\\n" +', 1)
+    o = o.replace(marker, marker + '\\n            "RESULT: $quickResultText\\\\n" +', 1)
 
 overlay.write_text(o, encoding="utf-8")
 print("OCR price-label and live pressure overlay patch applied.")
