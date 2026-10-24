@@ -31,12 +31,16 @@ if 'private var quickPriceText = "WAITING"' not in c:
     c = c.replace("class CaptureService : Service() {", '''class CaptureService : Service() {
     @Volatile private var quickPriceText = "WAITING"
     private var lastPriceOcrAt = 0L
+    @Volatile private var lastPriceSuccessAt = 0L
     private val priceTextRecognizer by lazy {
         TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     }
 
     private fun readVisiblePrice(bitmap: Bitmap) {
         val now = SystemClock.elapsedRealtime()
+        if (lastPriceSuccessAt > 0L && now - lastPriceSuccessAt > 2500L) {
+            quickPriceText = "STALE PRICE"
+        }
         if (now - lastPriceOcrAt < 700L) return
         lastPriceOcrAt = now
         // Read only the chart's right-axis strip, below the overlay header.
@@ -50,7 +54,10 @@ if 'private var quickPriceText = "WAITING"' not in c:
             .addOnSuccessListener { result ->
                 val values = result.textBlocks.flatMap { it.lines }.map { it.text.trim().replace(',', '.') }
                     .filter { it.matches(Regex("\\\\d{1,6}\\\\.\\\\d{1,8}")) }
-                values.maxByOrNull { it.substringAfter('.').length }?.let { quickPriceText = it }
+                values.maxByOrNull { it.length }?.let {
+                    quickPriceText = it
+                    lastPriceSuccessAt = SystemClock.elapsedRealtime()
+                }
             }
             .addOnFailureListener { Log.w(TAG, "Price OCR failed", it) }
             .addOnCompleteListener { crop.recycle() }
