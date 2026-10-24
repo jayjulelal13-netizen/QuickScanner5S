@@ -43,12 +43,45 @@ if 'private var quickPriceText = "WAITING"' not in c:
         }
         if (now - lastPriceOcrAt < 700L) return
         lastPriceOcrAt = now
-        // Read only the chart's right-axis strip, below the overlay header.
-        // This avoids OCR reading the overlay's own LINE LEVEL or chat-message prices.
-        val left = (bitmap.width * 0.84f).toInt().coerceIn(0, bitmap.width - 1)
-        val top = (bitmap.height * 0.34f).toInt().coerceIn(0, bitmap.height - 1)
-        val bottom = (bitmap.height * 0.70f).toInt().coerceIn(top + 1, bitmap.height)
-        val crop = try { Bitmap.createBitmap(bitmap, left, top, bitmap.width - left, bottom - top) }
+        // Locate the blue live-price badge on the chart rather than reading
+        // grey historical axis labels. Search the right chart edge only.
+        val xStart = (bitmap.width * 0.72f).toInt().coerceIn(0, bitmap.width - 1)
+        val yStart = (bitmap.height * 0.18f).toInt().coerceIn(0, bitmap.height - 1)
+        val yEnd = (bitmap.height * 0.72f).toInt().coerceIn(yStart + 1, bitmap.height)
+        var minX = bitmap.width
+        var maxX = -1
+        var minY = bitmap.height
+        var maxY = -1
+        val stepX = maxOf(1, bitmap.width / 400)
+        val stepY = maxOf(1, bitmap.height / 700)
+        var y = yStart
+        while (y < yEnd) {
+            var x = xStart
+            while (x < bitmap.width) {
+                val px = bitmap.getPixel(x, y)
+                val red = android.graphics.Color.red(px)
+                val green = android.graphics.Color.green(px)
+                val blue = android.graphics.Color.blue(px)
+                if (blue > 170 && green in 80..210 && red in 0..100 && blue > red * 1.5) {
+                    minX = minOf(minX, x); maxX = maxOf(maxX, x)
+                    minY = minOf(minY, y); maxY = maxOf(maxY, y)
+                }
+                x += stepX
+            }
+            y += stepY
+        }
+        // A live-price badge should be a compact blue pill. Reject broad blue UI areas.
+        if (maxX < minX || maxY < minY ||
+            maxX - minX < bitmap.width * 0.04f ||
+            maxX - minX > bitmap.width * 0.28f ||
+            maxY - minY > bitmap.height * 0.10f) return
+        val padX = (bitmap.width * 0.008f).toInt()
+        val padY = (bitmap.height * 0.006f).toInt()
+        val left = (minX - padX).coerceAtLeast(0)
+        val top = (minY - padY).coerceAtLeast(0)
+        val right = (maxX + padX).coerceAtMost(bitmap.width - 1)
+        val bottom = (maxY + padY).coerceAtMost(bitmap.height - 1)
+        val crop = try { Bitmap.createBitmap(bitmap, left, top, right - left + 1, bottom - top + 1) }
             catch (_: Exception) { return }
         priceTextRecognizer.process(InputImage.fromBitmap(crop, 0))
             .addOnSuccessListener { result ->
