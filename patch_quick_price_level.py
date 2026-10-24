@@ -39,9 +39,11 @@ if 'private var quickPriceText = "WAITING"' not in c:
         val now = SystemClock.elapsedRealtime()
         if (now - lastPriceOcrAt < 700L) return
         lastPriceOcrAt = now
-        val left = (bitmap.width * 0.78f).toInt().coerceIn(0, bitmap.width - 1)
-        val top = (bitmap.height * 0.18f).toInt().coerceIn(0, bitmap.height - 1)
-        val bottom = (bitmap.height * 0.72f).toInt().coerceIn(top + 1, bitmap.height)
+        // Read only the chart's right-axis strip, below the overlay header.
+        // This avoids OCR reading the overlay's own LINE LEVEL or chat-message prices.
+        val left = (bitmap.width * 0.84f).toInt().coerceIn(0, bitmap.width - 1)
+        val top = (bitmap.height * 0.34f).toInt().coerceIn(0, bitmap.height - 1)
+        val bottom = (bitmap.height * 0.70f).toInt().coerceIn(top + 1, bitmap.height)
         val crop = try { Bitmap.createBitmap(bitmap, left, top, bitmap.width - left, bottom - top) }
             catch (_: Exception) { return }
         priceTextRecognizer.process(InputImage.fromBitmap(crop, 0))
