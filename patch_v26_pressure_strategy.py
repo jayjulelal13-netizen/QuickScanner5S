@@ -144,7 +144,7 @@ replacement = r'''    private fun updateQuick5s(runningCandle: CandleAnalyzer.De
             upper > lower -> "WICK: UPPER ${(upper * 100.0).roundToInt()}% / LOWER ${(lower * 100.0).roundToInt()}%"
             else -> "WICK: LOWER ${(lower * 100.0).roundToInt()}% / UPPER ${(upper * 100.0).roundToInt()}%"
         }
-        quickOverlayDetails = "$trendLabel\\n$pressureLabel\\n$wickLabel"
+        quickOverlayDetails = "$trendLabel\n$pressureLabel\n$wickLabel"
 
         // Require an actual rejection wick as well as candle body, close location,
         // momentum and pressure. This intentionally filters many marginal setups.
