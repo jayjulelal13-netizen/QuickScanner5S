@@ -63,7 +63,7 @@ replacement = r'''    private fun updateQuick5s(runningCandle: CandleAnalyzer.De
             quickSignal = "NO TRADE"
             quickSignalEntry = Double.NaN
             quickActiveUntilBucket = -1L
-            sendQuickStatus("NO TRADE", 0, 0, "WAIT - MISSED 5S DATA")
+            sendQuickStatus("NO TRADE", 0, quickPressureHistory.size, "WAIT - MISSED 5S DATA")
             return
         }
 
