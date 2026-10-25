@@ -146,18 +146,16 @@ replacement = r'''    private fun updateQuick5s(runningCandle: CandleAnalyzer.De
         }
         quickOverlayDetails = "$trendLabel\n$pressureLabel\n$wickLabel"
 
-        // Require an actual rejection wick as well as candle body, close location,
-        // momentum and pressure. This intentionally filters many marginal setups.
-        val bull = closed.close > closed.open && bodyRatio >= 0.30 &&
-            closeLocation >= 0.62 && lower >= 0.20 && upper <= 0.25 &&
-            momentumUp && bullPressure >= 0.58
-        val bear = closed.close < closed.open && bodyRatio >= 0.30 &&
-            closeLocation <= 0.38 && upper >= 0.20 && lower <= 0.25 &&
-            momentumDown && bearPressure >= 0.58
+        // Relaxed setup: 5M is primary trend; 1M may be aligned or sideways.
+        // Do not require a special rejection wick on every setup.
+        val bull = closed.close > closed.open && bodyRatio >= 0.20 &&
+            closeLocation >= 0.55 && momentumUp && bullPressure >= 0.58
+        val bear = closed.close < closed.open && bodyRatio >= 0.20 &&
+            closeLocation <= 0.45 && momentumDown && bearPressure >= 0.58
 
         val direction = when {
-            trend5m == "BULLISH" && trend1m == "BULLISH" && bull -> "CALL"
-            trend5m == "BEARISH" && trend1m == "BEARISH" && bear -> "PUT"
+            trend5m == "BULLISH" && trend1m != "BEARISH" && bull -> "CALL"
+            trend5m == "BEARISH" && trend1m != "BULLISH" && bear -> "PUT"
             else -> "NO TRADE"
         }
 
