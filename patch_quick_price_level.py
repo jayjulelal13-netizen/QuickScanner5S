@@ -163,10 +163,13 @@ if 'quickResultText = intent.getStringExtra("quickResult")' not in o:
     anchor = 'quickPriceText = intent.getStringExtra("quickPriceText") ?: quickPriceText'
     if anchor not in o: raise SystemExit("overlay price receiver anchor missing for result")
     o = o.replace(anchor, anchor + '\n                    quickResultText = intent.getStringExtra("quickResult") ?: quickResultText', 1)
-# LINE LEVEL is intentionally removed from the overlay because OCR has not
-# been reliable across chart layouts. Do not fail the build if an earlier patch
-# already removed the label; preserve trend/pressure/wick/result diagnostics.
-o = re.sub(r'^\s*"LINE LEVEL: \$quickPriceText\\n" \+\s*\n', '', o, flags=re.MULTILINE)
+# Restore LINE LEVEL display. If OCR cannot read a fresh value, the service
+# reports WAITING/STALE PRICE; do not hide the field from the user.
+if '"LINE LEVEL: $quickPriceText\\n" +' not in o:
+    marker = '"CHART: CANDLE DETECTION\\n" +'
+    if marker not in o:
+        raise SystemExit("overlay chart header missing for LINE LEVEL restore")
+    o = o.replace(marker, marker + '\n            "LINE LEVEL: $quickPriceText\\n" +', 1)
 
 overlay.write_text(o, encoding="utf-8")
 print("OCR price-label and live pressure overlay patch applied.")
