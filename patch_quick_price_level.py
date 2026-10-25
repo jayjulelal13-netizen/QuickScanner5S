@@ -163,22 +163,14 @@ if 'quickResultText = intent.getStringExtra("quickResult")' not in o:
     anchor = 'quickPriceText = intent.getStringExtra("quickPriceText") ?: quickPriceText'
     if anchor not in o: raise SystemExit("overlay price receiver anchor missing for result")
     o = o.replace(anchor, anchor + '\n                    quickResultText = intent.getStringExtra("quickResult") ?: quickResultText', 1)
-# Restore LINE LEVEL display. If OCR cannot read a fresh value, the service
-# reports WAITING/STALE PRICE; do not hide the field from the user.
-if '"LINE LEVEL: $quickPriceText\n" +' not in o:
-    marker = '"CHART: CANDLE DETECTION\n" +'
-    if marker not in o:
-        raise SystemExit("overlay chart header missing for LINE LEVEL restore")
-    o = o.replace(marker, marker + '\n            "LINE LEVEL: $quickPriceText\\n" +', 1)
-
-# Keep the requested original-style overlay: live line level, trend/pressure/wick,
-# one signal line, status, and result. Do not show a separate momentum percentage.
+# Replace the whole text builder in one step. This also restores LINE LEVEL
+# without depending on the exact escaping/layout of earlier patch versions.
 pattern = r'    private fun buildOverlayText\(\): String \{.*?(?=    private fun formatPrice\()'
 replacement = r'''    private fun buildOverlayText(): String {
         val resultText = if (quickResultText.isBlank()) "-" else quickResultText
         return "5S QUICK\n" +
-            "CHART: CANDLE DETECTION\\n" +
-            "LINE LEVEL: $quickPriceText\\n" +
+            "CHART: CANDLE DETECTION\n" +
+            "LINE LEVEL: $quickPriceText\n" +
             "$quickDetails\n" +
             "SIGNAL: ${if (signalLocked) nextSignal else "NO TRADE"}\n" +
             "STATUS: ${if (signalLocked) "LOCKED 5 SEC" else status}\n" +
