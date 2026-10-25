@@ -53,7 +53,7 @@ if 'private var quickPriceText = "WAITING"' not in c:
             val red = android.graphics.Color.red(px)
             val green = android.graphics.Color.green(px)
             val blue = android.graphics.Color.blue(px)
-            return blue > 170 && green in 80..210 && red in 0..100 && blue > red * 1.5
+            return blue > 140 && green in 65..225 && red in 0..135 && blue > red * 1.30
         }
         val rowCounts = mutableMapOf<Int, Int>()
         var y = yStart
@@ -68,7 +68,7 @@ if 'private var quickPriceText = "WAITING"' not in c:
             y += stepY
         }
         val bestRow = rowCounts.maxByOrNull { it.value }
-        if (bestRow == null || bestRow.value < 8) return
+        if (bestRow == null || bestRow.value < 4) return
         val rowThreshold = maxOf(5, (bestRow.value * 0.45f).toInt())
         // Keep only the contiguous row band around the strongest blue row.
         // This prevents other blue UI elements from merging into one giant crop.
@@ -101,8 +101,8 @@ if 'private var quickPriceText = "WAITING"' not in c:
             }
             y += stepY
         }
-        if (maxX < minX || maxX - minX < bitmap.width * 0.04f ||
-            maxX - minX > bitmap.width * 0.30f || maxY - minY > bitmap.height * 0.08f) return
+        if (maxX < minX || maxX - minX < bitmap.width * 0.03f ||
+            maxX - minX > bitmap.width * 0.40f || maxY - minY > bitmap.height * 0.12f) return
         val left = (minX - (bitmap.width * 0.004f).toInt()).coerceAtLeast(0)
         val top = minY
         val right = (maxX + (bitmap.width * 0.004f).toInt()).coerceAtMost(bitmap.width - 1)
