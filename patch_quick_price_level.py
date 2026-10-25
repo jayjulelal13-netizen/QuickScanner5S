@@ -173,7 +173,7 @@ if '"LINE LEVEL: $quickPriceText\\n" +' not in o:
 
 # Keep the requested original-style overlay: live line level, trend/pressure/wick,
 # one signal line, status, and result. Do not show a separate momentum percentage.
-pattern = r'    private fun buildOverlayText\\(\\): String \\{.*?(?=    private fun formatPrice\\()'
+pattern = r'    private fun buildOverlayText\(\): String \{.*?(?=    private fun formatPrice\()'
 replacement = r'''    private fun buildOverlayText(): String {
         val resultText = if (quickResultText.isBlank()) "-" else quickResultText
         return "5S QUICK\\n" +
