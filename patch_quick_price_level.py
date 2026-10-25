@@ -171,5 +171,21 @@ if '"LINE LEVEL: $quickPriceText\\n" +' not in o:
         raise SystemExit("overlay chart header missing for LINE LEVEL restore")
     o = o.replace(marker, marker + '\n            "LINE LEVEL: $quickPriceText\\n" +', 1)
 
+# Keep the requested original-style overlay: live line level, trend/pressure/wick,
+# one signal line, status, and result. Do not show a separate momentum percentage.
+pattern = r'    private fun buildOverlayText\\(\\): String \\{.*?(?=    private fun formatPrice\\()'
+replacement = r'''    private fun buildOverlayText(): String {
+        val resultText = if (quickResultText.isBlank()) "-" else quickResultText
+        return "5S QUICK\\n" +
+            "CHART: CANDLE DETECTION\\n" +
+            "LINE LEVEL: $quickPriceText\\n" +
+            "$quickDetails\\n" +
+            "SIGNAL: ${if (signalLocked) nextSignal else "NO TRADE"}\\n" +
+            "STATUS: ${if (signalLocked) "LOCKED 5 SEC" else status}\\n" +
+            "RESULT: $resultText"
+    }
+'''
+o, n = re.subn(pattern, lambda m: replacement, o, count=1, flags=re.S)
+if n != 1: raise SystemExit("buildOverlayText block not found for compact overlay")
 overlay.write_text(o, encoding="utf-8")
 print("OCR price-label and live pressure overlay patch applied.")
