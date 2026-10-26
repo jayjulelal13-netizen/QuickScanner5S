@@ -170,7 +170,6 @@ replacement = r'''    private fun buildOverlayText(): String {
         val resultText = if (quickResultText.isBlank()) "-" else quickResultText
         return "5S QUICK\n" +
             "CHART: CANDLE DETECTION\n" +
-            "LINE LEVEL: $quickPriceText\n" +
             "$quickDetails\n" +
             "SIGNAL: ${if (signalLocked) nextSignal else "NO TRADE"}\n" +
             "STATUS: ${if (signalLocked) "LOCKED 5 SEC" else status}\n" +
