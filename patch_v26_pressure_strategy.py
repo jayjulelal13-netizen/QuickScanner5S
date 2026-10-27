@@ -18,6 +18,16 @@ state = """    private data class QuickPressureCandle(val bucket: Long, val open
 if "private data class QuickPressureCandle" not in source:
     if anchor not in source: raise SystemExit("Quick state anchor not found")
     source = source.replace(anchor, state + anchor, 1)
+
+# Older source bundles may already define the candle class but lack later state fields.
+if "private var quickLastResult =" not in source:
+    state_anchor = "    private var quickBucketId = -1L\\n"
+    if state_anchor not in source: raise SystemExit("Quick result state anchor not found")
+    source = source.replace(state_anchor, '    private var quickLastResult = "WAITING FOR SETTLEMENT"\\n' + state_anchor, 1)
+if "private var quickOverlayDetails =" not in source:
+    state_anchor = "    private var quickBucketId = -1L\\n"
+    if state_anchor not in source: raise SystemExit("Quick overlay state anchor not found")
+    source = source.replace(state_anchor, '    private var quickOverlayDetails = "TREND: WAITING\\\\nPRESSURE: WAITING\\\\nWICK: WAITING"\\n' + state_anchor, 1)
 source = source.replace("        quickBucketId = -1L\n",
     "        quickBucketId = -1L\n        quickPressureCandle = null\n        quickPressureHistory.clear()\n")
 
