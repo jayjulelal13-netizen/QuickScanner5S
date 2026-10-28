@@ -123,11 +123,12 @@ replacement = r'''    private fun updateQuick5s(runningCandle: CandleAnalyzer.De
         }
 
         val trend1m = quickTrend(oneMinute.map { it.close }, 5, 13)
-        // Approximate 5M structure from five-candle groups on the 1M chart.
-        // This is not an independent broker-provided 5M candle feed.
-        val fiveMinuteCloses = oneMinute.takeLast(60).chunked(5)
-            .filter { it.size == 5 }.map { it.last().close }
-        val trend5m = quickTrend(fiveMinuteCloses, 3, 6)
+        // Estimate the broader 5M direction from rolling 1M closes.
+        // This is an estimate, not a separate broker 5M feed; compare recent
+        // 5-minute average with the preceding 5-minute average to reduce
+        // arbitrary chunk alignment and single-candle reversals.
+        val closes1m = oneMinute.map { it.close }
+        val trend5m = quickTrend5m(closes1m)
 
         val range = (closed.high - closed.low).coerceAtLeast(1.0e-12)
         val bodyRatio = (abs(closed.close - closed.open) / range).coerceIn(0.0, 1.0)
@@ -209,6 +210,20 @@ replacement = r'''    private fun updateQuick5s(runningCandle: CandleAnalyzer.De
                 else -> "NO TRADE - SETUP NOT CONFIRMED"
             }
             sendQuickStatus("NO TRADE", setupStrength, samples, why)
+        }
+    }
+
+    private fun quickTrend5m(closes: List<Double>): String {
+        if (closes.size < 15) return "WAITING"
+        val prior = closes.takeLast(15).dropLast(10).average()
+        val recent = closes.takeLast(5).average()
+        val recentSlope = closes.takeLast(5).last() - closes.takeLast(5).first()
+        val scale = maxOf(kotlin.math.abs(prior), 1.0e-12)
+        val deadBand = scale * 0.00002
+        return when {
+            recent > prior + deadBand && recentSlope > 0.0 -> "BULLISH"
+            recent < prior - deadBand && recentSlope < 0.0 -> "BEARISH"
+            else -> "SIDEWAYS"
         }
     }
 
