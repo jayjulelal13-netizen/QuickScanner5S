@@ -51,6 +51,8 @@ anchor = '    private var quickBucketId = -1L'
 if anchor not in c: raise SystemExit("Quick bucket field not found")
 c = c.replace(anchor, '    private var timeframeBucketDurationMs = 5000L\n' + anchor, 1)
 c = c.replace('QUICK_BUCKET_MS', 'timeframeBucketDurationMs')
+# Re-run cleanup after renaming the legacy constant; otherwise it becomes a duplicate field.
+c = re.sub(r'(?m)^[ \t]*private\s+(?:const\s+)?(?:val|var)\s+timeframeBucketDurationMs\b[^\n]*\n', '', c)
 pattern = r'        quickMode\s*=.*?if \(quickMode\) \{\s*selectedTimeframe = "1S"\s*\}'
 new = '''        val requestedTimeframe = intent?.getStringExtra("timeframe") ?: "1 MIN"
         quickMode = intent?.getBooleanExtra("quickMode", false) ?: false
