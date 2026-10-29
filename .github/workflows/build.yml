@@ -73,6 +73,7 @@ jobs:
           python3 patch_v26_pressure_strategy.py
           python3 patch_overlay_signal_truth.py
           python3 patch_quick_price_level.py
+          python3 patch_timeframe_overlay_v1.py
           echo "QuickScanner-only line level overlay added; Live CoinDCX project untouched"
           echo "5M + 1M trend and completed 5S pressure strategy patch applied"
           grep -n "applicationId" "$PROJECT_DIR/app/build.gradle.kts"
