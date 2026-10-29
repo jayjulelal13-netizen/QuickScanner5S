@@ -45,7 +45,8 @@ main.write_text(m)
 c = cap.read_text()
 c = c.replace('        private const val QUICK_BUCKET_MS = 5000L\n', '')
 # Earlier workflow patches may already have inserted a val/var with this name.
-c = re.sub(r'^\s*private\s+(?:val|var)\s+timeframeBucketDurationMs(?:\s*:\s*[^=\n]+)?\s*=.*\n', '', c, flags=re.M)
+# Remove every previous declaration, including legacy read-only vals without initializers.
+c = re.sub(r'(?m)^[ \t]*private\s+(?:val|var)\s+timeframeBucketDurationMs\b[^\n]*\n', '', c)
 anchor = '    private var quickBucketId = -1L'
 if anchor not in c: raise SystemExit("Quick bucket field not found")
 c = c.replace(anchor, '    private var timeframeBucketDurationMs = 5000L\n' + anchor, 1)
