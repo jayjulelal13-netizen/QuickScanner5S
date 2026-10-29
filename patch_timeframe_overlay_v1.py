@@ -49,19 +49,7 @@ if 'private var quickBucketMs = 5000L' not in c:
     if anchor not in c: raise SystemExit("Quick bucket field not found")
     c = c.replace(anchor, '    private var quickBucketMs = 5000L\n' + anchor, 1)
 c = c.replace('QUICK_BUCKET_MS', 'quickBucketMs')
-old = '''        quickMode =
-            intent?.getBooleanExtra("quickMode", false) ?: false
-
-        selectedTimeframe =
-            normalizeTimeframe(
-                intent?.getStringExtra("timeframe") ?: "1M"
-            )
-
-        // 5S QUICK is an app-derived 5-second mode running on a 1M Quotex chart.
-        // quickMode controls the separate quick overlay/engine.
-        if (quickMode) {
-            selectedTimeframe = "1S"
-        }'''
+pattern = r'        quickMode\s*=.*?if \(quickMode\) \{\s*selectedTimeframe = "1S"\s*\}'
 new = '''        val requestedTimeframe = intent?.getStringExtra("timeframe") ?: "1 MIN"
         quickMode = intent?.getBooleanExtra("quickMode", false) ?: false
         quickBucketMs = when (requestedTimeframe.uppercase(Locale.US)) {
@@ -71,9 +59,8 @@ new = '''        val requestedTimeframe = intent?.getStringExtra("timeframe") ?:
             else -> 5000L
         }
         selectedTimeframe = normalizeTimeframe(if (quickMode) "1S" else requestedTimeframe)'''
-if old in c:
-    c = c.replace(old, new, 1)
-elif 'val requestedTimeframe = intent?.getStringExtra("timeframe")' not in c:
+c, count = re.subn(pattern, lambda _: new, c, count=1, flags=re.S)
+if count == 0 and 'val requestedTimeframe = intent?.getStringExtra("timeframe")' not in c:
     raise SystemExit("CaptureService start-timeframe block not found")
 cap.write_text(c)
 
