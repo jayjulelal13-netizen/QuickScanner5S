@@ -1,5 +1,5 @@
 from pathlib import Path
-import os
+import os, re
 
 root = Path(os.environ["PROJECT_DIR"]) / "app/src/main/java/com/example/screener"
 main, cap, ov = (root / x for x in ("MainActivity.kt", "CaptureService.kt", "OverlayService.kt"))
