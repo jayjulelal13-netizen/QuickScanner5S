@@ -44,15 +44,15 @@ main.write_text(m)
 
 c = cap.read_text()
 c = c.replace('        private const val QUICK_BUCKET_MS = 5000L\n', '')
-if 'private var quickBucketMs = 5000L' not in c:
+if 'private var selectedQuickBucketMs = 5000L' not in c:
     anchor = '    private var quickBucketId = -1L'
     if anchor not in c: raise SystemExit("Quick bucket field not found")
-    c = c.replace(anchor, '    private var quickBucketMs = 5000L\n' + anchor, 1)
-c = c.replace('QUICK_BUCKET_MS', 'quickBucketMs')
+    c = c.replace(anchor, '    private var selectedQuickBucketMs = 5000L\n' + anchor, 1)
+c = c.replace('QUICK_BUCKET_MS', 'selectedQuickBucketMs')
 pattern = r'        quickMode\s*=.*?if \(quickMode\) \{\s*selectedTimeframe = "1S"\s*\}'
 new = '''        val requestedTimeframe = intent?.getStringExtra("timeframe") ?: "1 MIN"
         quickMode = intent?.getBooleanExtra("quickMode", false) ?: false
-        quickBucketMs = when (requestedTimeframe.uppercase(Locale.US)) {
+        selectedQuickBucketMs = when (requestedTimeframe.uppercase(Locale.US)) {
             "5 SEC" -> 5000L
             "10 SEC" -> 10000L
             "15 SEC" -> 15000L
