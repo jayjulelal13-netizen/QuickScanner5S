@@ -159,14 +159,28 @@ replacement = r'''    private fun updateQuick5s(runningCandle: CandleAnalyzer.De
 
         // Relaxed setup: 5M is primary trend; 1M may be aligned or sideways.
         // Do not require a special rejection wick on every setup.
-        val bull = closed.close > closed.open && bodyRatio >= 0.20 &&
-            closeLocation >= 0.55 && momentumUp && bullPressure >= 0.58
-        val bear = closed.close < closed.open && bodyRatio >= 0.20 &&
-            closeLocation <= 0.45 && momentumDown && bearPressure >= 0.58
+        // Conservative confirmation for 5-second expiry: both higher-timeframe
+        // trends must agree. A sideways or conflicting trend is always NO TRADE.
+        val recentMicro = quickPressureHistory.takeLast(3)
+        val risingSequence = recentMicro.zipWithNext().count { (a, b) -> b.close > a.close } >= 2
+        val fallingSequence = recentMicro.zipWithNext().count { (a, b) -> b.close < a.close } >= 2
+        val recentRanges = quickPressureHistory.takeLast(12).map { (it.high - it.low).coerceAtLeast(0.0) }
+        val averageRange = recentRanges.average().coerceAtLeast(1.0e-12)
+        val rangeRatio = range / averageRange
+        val usableVolatility = rangeRatio in 0.55..2.20
+
+        val bull = closed.close > closed.open && bodyRatio >= 0.50 &&
+            closeLocation >= 0.75 && upper <= 0.18 && momentumUp &&
+            risingSequence && usableVolatility &&
+            bullPressure >= 0.72 && bullPressure - bearPressure >= 0.20
+        val bear = closed.close < closed.open && bodyRatio >= 0.50 &&
+            closeLocation <= 0.25 && lower <= 0.18 && momentumDown &&
+            fallingSequence && usableVolatility &&
+            bearPressure >= 0.72 && bearPressure - bullPressure >= 0.20
 
         val direction = when {
-            trend5m == "BULLISH" && trend1m != "BEARISH" && bull -> "CALL"
-            trend5m == "BEARISH" && trend1m != "BULLISH" && bear -> "PUT"
+            trend5m == "BULLISH" && trend1m == "BULLISH" && bull -> "CALL"
+            trend5m == "BEARISH" && trend1m == "BEARISH" && bear -> "PUT"
             else -> "NO TRADE"
         }
 
@@ -189,7 +203,7 @@ replacement = r'''    private fun updateQuick5s(runningCandle: CandleAnalyzer.De
         val setupStrength = ((if (direction == "CALL") bullPressure else bearPressure) * 100.0)
             .roundToInt().coerceIn(0, 100)
         val canSignal = (direction == "CALL" || direction == "PUT") &&
-            setupStrength >= 80 && !cooldown && fresh &&
+            setupStrength >= 85 && !cooldown && fresh &&
             quickSignalDirection == "NONE"
 
         if (canSignal) {
@@ -215,11 +229,13 @@ replacement = r'''    private fun updateQuick5s(runningCandle: CandleAnalyzer.De
 
     private fun quickTrend5m(closes: List<Double>): String {
         if (closes.size < 15) return "WAITING"
-        val prior = closes.takeLast(15).dropLast(10).average()
-        val recent = closes.takeLast(5).average()
-        val recentSlope = closes.takeLast(5).last() - closes.takeLast(5).first()
+        val lastTen = closes.takeLast(10)
+        val prior = lastTen.take(5).average()
+        val recentValues = lastTen.takeLast(5)
+        val recent = recentValues.average()
+        val recentSlope = recentValues.last() - recentValues.first()
         val scale = maxOf(kotlin.math.abs(prior), 1.0e-12)
-        val deadBand = scale * 0.00002
+        val deadBand = scale * 0.00010
         return when {
             recent > prior + deadBand && recentSlope > 0.0 -> "BULLISH"
             recent < prior - deadBand && recentSlope < 0.0 -> "BEARISH"
@@ -232,9 +248,11 @@ replacement = r'''    private fun updateQuick5s(runningCandle: CandleAnalyzer.De
         val fast = quickEma(values, fastPeriod)
         val slow = quickEma(values, slowPeriod)
         val recent = values.takeLast(3)
+        val scale = maxOf(kotlin.math.abs(values.last()), 1.0e-12)
+        val separation = scale * 0.00008
         return when {
-            fast > slow && recent.last() > recent.first() -> "BULLISH"
-            fast < slow && recent.last() < recent.first() -> "BEARISH"
+            fast > slow + separation && recent.last() > recent.first() -> "BULLISH"
+            fast < slow - separation && recent.last() < recent.first() -> "BEARISH"
             else -> "SIDEWAYS"
         }
     }
