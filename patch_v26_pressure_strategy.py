@@ -167,16 +167,19 @@ replacement = r'''    private fun updateQuick5s(runningCandle: CandleAnalyzer.De
         val recentRanges = quickPressureHistory.takeLast(12).map { (it.high - it.low).coerceAtLeast(0.0) }
         val averageRange = recentRanges.average().coerceAtLeast(1.0e-12)
         val rangeRatio = range / averageRange
-        val usableVolatility = rangeRatio in 0.55..2.20
+        val usableVolatility = rangeRatio in 0.35..2.80
 
-        val bull = closed.close > closed.open && bodyRatio >= 0.50 &&
-            closeLocation >= 0.75 && upper <= 0.18 && momentumUp &&
-            risingSequence && usableVolatility &&
-            bullPressure >= 0.72 && bullPressure - bearPressure >= 0.20
-        val bear = closed.close < closed.open && bodyRatio >= 0.50 &&
-            closeLocation <= 0.25 && lower <= 0.18 && momentumDown &&
-            fallingSequence && usableVolatility &&
-            bearPressure >= 0.72 && bearPressure - bullPressure >= 0.20
+        // Directional wick-rejection pattern:
+        // CALL = bullish trend + strong buy pressure + long lower wick rejection.
+        // PUT = bearish trend + strong sell pressure + long upper wick rejection.
+        val bull = closed.close > closed.open && bodyRatio >= 0.25 &&
+            closeLocation >= 0.68 && lower >= 0.25 && upper <= 0.28 &&
+            momentumUp && (risingSequence || micro.last().close > micro[micro.size - 2].close) &&
+            usableVolatility && bullPressure >= 0.66 && bullPressure - bearPressure >= 0.14
+        val bear = closed.close < closed.open && bodyRatio >= 0.25 &&
+            closeLocation <= 0.32 && upper >= 0.25 && lower <= 0.28 &&
+            momentumDown && (fallingSequence || micro.last().close < micro[micro.size - 2].close) &&
+            usableVolatility && bearPressure >= 0.66 && bearPressure - bullPressure >= 0.14
 
         val direction = when {
             trend5m == "BULLISH" && trend1m == "BULLISH" && bull -> "CALL"
@@ -203,7 +206,7 @@ replacement = r'''    private fun updateQuick5s(runningCandle: CandleAnalyzer.De
         val setupStrength = ((if (direction == "CALL") bullPressure else bearPressure) * 100.0)
             .roundToInt().coerceIn(0, 100)
         val canSignal = (direction == "CALL" || direction == "PUT") &&
-            setupStrength >= 85 && !cooldown && fresh &&
+            setupStrength >= 70 && !cooldown && fresh &&
             quickSignalDirection == "NONE"
 
         if (canSignal) {
@@ -214,7 +217,7 @@ replacement = r'''    private fun updateQuick5s(runningCandle: CandleAnalyzer.De
             quickLastSignalBucket = nowBucket
             quickLastSetupKey = setupKey
             quickLastSetupBucket = nowBucket
-            sendQuickStatus(direction, setupStrength, samples, "5S SETUP >=80 - DEMO ONLY")
+            sendQuickStatus(direction, setupStrength, samples, "5S TREND + PRESSURE + WICK - DEMO ONLY")
         } else {
             val why = when {
                 trend5m == "WAITING" || trend1m == "WAITING" -> "WAIT - TREND HISTORY"
