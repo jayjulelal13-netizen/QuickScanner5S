@@ -71,6 +71,7 @@ jobs:
           python3 patch_candle_only_5s.py
           python3 patch_chart_gate.py
           python3 patch_v26_pressure_strategy.py
+          python3 patch_quick_audit.py
           python3 patch_overlay_signal_truth.py
           python3 patch_quick_price_level.py
           python3 patch_timeframe_overlay_v1.py
